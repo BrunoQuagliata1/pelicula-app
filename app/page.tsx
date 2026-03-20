@@ -19,6 +19,11 @@ interface ChatMessage {
   content: string;
   movies?: TMDBMovie[];
   isLoading?: boolean;
+  // for infinite scroll
+  intent?: SearchIntent;
+  page?: number;
+  hasMore?: boolean;
+  isLoadingMore?: boolean;
 }
 
 const DEFAULT_COUNTRY = "ES";
@@ -31,43 +36,50 @@ async function enrichMovies(movies: TMDBMovie[], limit = 12): Promise<TMDBMovie[
     .map((r) => r.value);
 }
 
-async function executeSearch(intent: SearchIntent): Promise<TMDBMovie[]> {
+async function executeSearch(intent: SearchIntent, page = 1): Promise<{ movies: TMDBMovie[]; hasMore: boolean }> {
+  let raw: TMDBMovie[] = [];
+  let totalPages = 1;
+
   switch (intent.type) {
     case "popular": {
-      const [pop, top] = await Promise.all([getPopularMovies(1), getTopRatedMovies(1)]);
-      const combined = [...pop.results.slice(0, 8), ...top.results.slice(0, 8)];
+      const [pop, top] = await Promise.all([getPopularMovies(page), getTopRatedMovies(page)]);
+      const combined = [...pop.results.slice(0, 10), ...top.results.slice(0, 10)];
       const seen = new Set<number>();
-      return enrichMovies(combined.filter((m) => { if (seen.has(m.id)) return false; seen.add(m.id); return true; }));
+      raw = combined.filter((m) => { if (seen.has(m.id)) return false; seen.add(m.id); return true; });
+      totalPages = Math.max(pop.total_pages ?? 1, top.total_pages ?? 1);
+      break;
     }
     case "top_rated": {
-      const res = await getTopRatedMovies(1);
-      return enrichMovies(res.results);
+      const res = await getTopRatedMovies(page);
+      raw = res.results; totalPages = res.total_pages ?? 1; break;
     }
     case "now_playing": {
       const { getNowPlayingMovies } = await import("@/lib/tmdb");
-      const res = await getNowPlayingMovies(1);
-      return enrichMovies(res.results);
+      const res = await getNowPlayingMovies(page);
+      raw = res.results; totalPages = res.total_pages ?? 1; break;
     }
     case "search": {
-      if (!intent.query) return [];
-      const res = await searchMovies(intent.query);
-      return enrichMovies(res.results);
+      if (!intent.query) return { movies: [], hasMore: false };
+      const res = await searchMovies(intent.query, page);
+      raw = res.results; totalPages = res.total_pages ?? 1; break;
     }
     case "similar": {
-      if (!intent.query) return [];
+      if (!intent.query) return { movies: [], hasMore: false };
       const searchRes = await searchMovies(intent.query);
-      if (!searchRes.results.length) return [];
+      if (!searchRes.results.length) return { movies: [], hasMore: false };
       const baseId = searchRes.results[0].id;
-      const [similar, recommendations] = await Promise.all([getSimilarMovies(baseId), getMovieRecommendations(baseId)]);
+      const [similar, recommendations] = await Promise.all([getSimilarMovies(baseId, page), getMovieRecommendations(baseId, page)]);
       const combined = [...similar.results, ...recommendations.results];
       const seen = new Set<number>();
-      return enrichMovies(combined.filter((m) => { if (seen.has(m.id)) return false; seen.add(m.id); return true; }));
+      raw = combined.filter((m) => { if (seen.has(m.id)) return false; seen.add(m.id); return true; });
+      totalPages = Math.max(similar.total_pages ?? 1, recommendations.total_pages ?? 1);
+      break;
     }
     case "discover": {
       const params: Record<string, string | number> = {
         sort_by: intent.sortBy ?? "popularity.desc",
         "vote_count.gte": intent.voteCountGte ?? 200,
-        page: 1,
+        page,
       };
       if (intent.genres?.length) params.with_genres = intent.genres.join(",");
       if (intent.releaseDateLte) params["release_date.lte"] = intent.releaseDateLte;
@@ -80,11 +92,14 @@ async function executeSearch(intent: SearchIntent): Promise<TMDBMovie[]> {
         } catch { /* ignore */ }
       }
       const res = await discoverMovies(params);
-      return enrichMovies(res.results);
+      raw = res.results; totalPages = res.total_pages ?? 1; break;
     }
     default:
-      return [];
+      return { movies: [], hasMore: false };
   }
+
+  const movies = await enrichMovies(raw, 12);
+  return { movies, hasMore: page < Math.min(totalPages, 20) };
 }
 
 export default function HomePage() {
@@ -129,7 +144,7 @@ export default function HomePage() {
       setMessages([{ id: loadingId, role: "assistant", content: "Cargando películas populares...", isLoading: true }]);
       try {
         const movies = await executeSearch({ type: "popular", message: "Películas populares" });
-        setMessages([{ id: loadingId, role: "assistant", content: "🎬 Películas populares del momento", movies }]);
+        setMessages([{ id: loadingId, role: "assistant", content: "🎬 Películas populares del momento", movies: movies.movies, intent: { type: "popular", message: "Películas populares" }, page: 1, hasMore: movies.hasMore }]);
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         if (msg.includes("TMDB_API_KEY") || msg.includes("401")) {
@@ -178,7 +193,7 @@ export default function HomePage() {
       const seen = new Set<number>([movie.id]);
       const unique = combined.filter((m) => { if (seen.has(m.id)) return false; seen.add(m.id); return true; });
       const enriched = await enrichMovies(unique);
-      setMessages((prev) => prev.map((m) => m.id === assistantId ? { ...m, content: `🎬 Similares a "${movie.title}"`, movies: enriched, isLoading: false } : m));
+      setMessages((prev) => prev.map((m) => m.id === assistantId ? { ...m, content: `🎬 Similares a "${movie.title}"`, movies: enriched, page: 1, hasMore: false, isLoading: false } : m));
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       setMessages((prev) => prev.map((m) => m.id === assistantId ? { ...m, content: `Error: ${msg}`, isLoading: false } : m));
@@ -189,24 +204,24 @@ export default function HomePage() {
 
   const handleSurprise = useCallback(async () => {
     if (isLoading) return;
-    // Random page between 1-20, random movie from that page, min rating 7, min votes 500
-    const randomPage = Math.floor(Math.random() * 20) + 1;
+    // Random page 1-10, all movies with rating >= 7 and 500+ votes
+    const randomPage = Math.floor(Math.random() * 10) + 1;
     const assistantId = `surprise-${Date.now()}`;
     setMessages((prev) => [
       ...prev,
       { id: `user-${assistantId}`, role: "user", content: "🎲 Sorprendeme" },
-      { id: assistantId, role: "assistant", content: "Eligiendo una película al azar...", isLoading: true },
+      { id: assistantId, role: "assistant", content: "Eligiendo películas al azar...", isLoading: true },
     ]);
     setIsLoading(true);
     try {
       const res = await discoverMovies({ sort_by: "vote_average.desc", "vote_count.gte": 500, page: randomPage });
       const pool = res.results.filter((m: TMDBMovie) => m.vote_average >= 7);
-      if (!pool.length) throw new Error("No movies");
-      const pick = pool[Math.floor(Math.random() * pool.length)];
-      const enriched = await getMovieDetails(pick.id);
-      setMessages((prev) => prev.map((m) => m.id === assistantId ? { ...m, content: "🎲 Tu película del azar:", movies: [enriched], isLoading: false } : m));
+      // Shuffle and take up to 12
+      const shuffled = pool.sort(() => Math.random() - 0.5).slice(0, 12);
+      const enriched = await enrichMovies(shuffled, 12);
+      setMessages((prev) => prev.map((m) => m.id === assistantId ? { ...m, content: `🎲 Películas al azar — todas buenas (rating +7)`, movies: enriched, isLoading: false } : m));
     } catch {
-      setMessages((prev) => prev.map((m) => m.id === assistantId ? { ...m, content: "No pude encontrar una película. Intentá de nuevo.", isLoading: false } : m));
+      setMessages((prev) => prev.map((m) => m.id === assistantId ? { ...m, content: "No pude encontrar películas. Intentá de nuevo.", isLoading: false } : m));
     } finally {
       setIsLoading(false);
     }
@@ -223,7 +238,7 @@ export default function HomePage() {
     setIsLoading(true);
     try {
       const movies = await executeSearch(intent);
-      setMessages((prev) => prev.map((m) => m.id === assistantId ? { ...m, content: `🎬 ${intent.message}`, movies, isLoading: false } : m));
+      setMessages((prev) => prev.map((m) => m.id === assistantId ? { ...m, content: `🎬 ${intent.message}`, movies: movies.movies, intent, page: 1, hasMore: movies.hasMore, isLoading: false } : m));
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       setMessages((prev) => prev.map((m) => m.id === assistantId ? { ...m, content: `Error: ${msg}`, isLoading: false } : m));
@@ -256,6 +271,25 @@ export default function HomePage() {
     setShowWatchlist(true); // show watchlist after swipe so they can see what they saved
   }, []);
 
+  const handleLoadMore = useCallback(async (messageId: string) => {
+    setMessages((prev) => prev.map((m) => m.id === messageId ? { ...m, isLoadingMore: true } : m));
+    const msg = messages.find((m) => m.id === messageId);
+    if (!msg?.intent) return;
+    const nextPage = (msg.page ?? 1) + 1;
+    try {
+      const result = await executeSearch(msg.intent, nextPage);
+      setMessages((prev) => prev.map((m) => m.id === messageId ? {
+        ...m,
+        movies: [...(m.movies ?? []), ...result.movies],
+        page: nextPage,
+        hasMore: result.hasMore,
+        isLoadingMore: false,
+      } : m));
+    } catch {
+      setMessages((prev) => prev.map((m) => m.id === messageId ? { ...m, isLoadingMore: false } : m));
+    }
+  }, [messages]);
+
   const handleSubmit = useCallback(async (userInput: string) => {
     if (isLoading) return;
     const userId = Date.now().toString();
@@ -268,8 +302,8 @@ export default function HomePage() {
     setIsLoading(true);
     try {
       const intent = await parseUserInput(userInput);
-      const movies = await executeSearch(intent);
-      setMessages((prev) => prev.map((m) => m.id === assistantId ? { ...m, content: `🎬 ${intent.message}`, movies, isLoading: false } : m));
+      const result = await executeSearch(intent);
+      setMessages((prev) => prev.map((m) => m.id === assistantId ? { ...m, content: `🎬 ${intent.message}`, movies: result.movies, intent, page: 1, hasMore: result.hasMore, isLoading: false } : m));
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       setMessages((prev) => prev.map((m) => m.id === assistantId ? { ...m, content: `Error: ${msg}`, isLoading: false } : m));
@@ -293,7 +327,7 @@ export default function HomePage() {
       const seen = new Set<number>([movie.id]);
       const unique = combined.filter((m) => { if (seen.has(m.id)) return false; seen.add(m.id); return true; });
       const enriched = await enrichMovies(unique);
-      setMessages((prev) => prev.map((m) => m.id === assistantId ? { ...m, content: `🎬 Películas similares a "${movie.title}"`, movies: enriched, isLoading: false } : m));
+      setMessages((prev) => prev.map((m) => m.id === assistantId ? { ...m, content: `🎬 Películas similares a "${movie.title}"`, movies: enriched, page: 1, hasMore: false, isLoading: false } : m));
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       setMessages((prev) => prev.map((m) => m.id === assistantId ? { ...m, content: `Error: ${msg}`, isLoading: false } : m));
@@ -390,6 +424,9 @@ export default function HomePage() {
                     onWatchlist={handleWatchlist}
                     watchlist={watchlist}
                     isLoading={message.isLoading}
+                    hasMore={message.hasMore}
+                    isLoadingMore={message.isLoadingMore}
+                    onLoadMore={() => handleLoadMore(message.id)}
                   />
                 )}
               </div>
