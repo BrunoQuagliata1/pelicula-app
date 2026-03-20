@@ -28,78 +28,109 @@ interface ChatMessage {
 
 const DEFAULT_COUNTRY = "ES";
 
-async function enrichMovies(movies: TMDBMovie[], limit = 12): Promise<TMDBMovie[]> {
-  const slice = movies.slice(0, limit);
-  const enriched = await Promise.allSettled(slice.map((m) => getMovieDetails(m.id)));
-  return enriched
+// Track seen movie IDs globally per session to avoid repeats
+const seenMovieIds = new Set<number>();
+
+function shuffle<T>(arr: T[]): T[] {
+  const a = [...arr];
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
+async function enrichMovies(movies: TMDBMovie[], limit = 16): Promise<TMDBMovie[]> {
+  // Deduplicate against seen IDs
+  const fresh = movies.filter((m) => !seenMovieIds.has(m.id)).slice(0, limit);
+  const enriched = await Promise.allSettled(fresh.map((m) => getMovieDetails(m.id)));
+  const result = enriched
     .filter((r): r is PromiseFulfilledResult<TMDBMovie> => r.status === "fulfilled")
     .map((r) => r.value);
+  result.forEach((m) => seenMovieIds.add(m.id));
+  return result;
 }
 
 async function executeSearch(intent: SearchIntent, page = 1): Promise<{ movies: TMDBMovie[]; hasMore: boolean }> {
   let raw: TMDBMovie[] = [];
   let totalPages = 1;
 
-  switch (intent.type) {
-    case "popular": {
-      const [pop, top] = await Promise.all([getPopularMovies(page), getTopRatedMovies(page)]);
-      const combined = [...pop.results.slice(0, 10), ...top.results.slice(0, 10)];
-      const seen = new Set<number>();
-      raw = combined.filter((m) => { if (seen.has(m.id)) return false; seen.add(m.id); return true; });
-      totalPages = Math.max(pop.total_pages ?? 1, top.total_pages ?? 1);
-      break;
-    }
-    case "top_rated": {
-      const res = await getTopRatedMovies(page);
-      raw = res.results; totalPages = res.total_pages ?? 1; break;
-    }
-    case "now_playing": {
-      const { getNowPlayingMovies } = await import("@/lib/tmdb");
-      const res = await getNowPlayingMovies(page);
-      raw = res.results; totalPages = res.total_pages ?? 1; break;
-    }
-    case "search": {
-      if (!intent.query) return { movies: [], hasMore: false };
-      const res = await searchMovies(intent.query, page);
-      raw = res.results; totalPages = res.total_pages ?? 1; break;
-    }
-    case "similar": {
-      if (!intent.query) return { movies: [], hasMore: false };
-      const searchRes = await searchMovies(intent.query);
-      if (!searchRes.results.length) return { movies: [], hasMore: false };
-      const baseId = searchRes.results[0].id;
-      const [similar, recommendations] = await Promise.all([getSimilarMovies(baseId, page), getMovieRecommendations(baseId, page)]);
-      const combined = [...similar.results, ...recommendations.results];
-      const seen = new Set<number>();
-      raw = combined.filter((m) => { if (seen.has(m.id)) return false; seen.add(m.id); return true; });
-      totalPages = Math.max(similar.total_pages ?? 1, recommendations.total_pages ?? 1);
-      break;
-    }
-    case "discover": {
-      const params: Record<string, string | number> = {
-        sort_by: intent.sortBy ?? "popularity.desc",
-        "vote_count.gte": intent.voteCountGte ?? 200,
-        page,
-      };
-      if (intent.genres?.length) params.with_genres = intent.genres.join(",");
-      if (intent.releaseDateLte) params["release_date.lte"] = intent.releaseDateLte;
-      if (intent.runtimeLte) params["with_runtime.lte"] = intent.runtimeLte;
-      if (intent.runtimeGte) params["with_runtime.gte"] = intent.runtimeGte;
-      if (intent.personName) {
-        try {
-          const personRes = await searchPerson(intent.personName);
-          if (personRes.results.length) params.with_people = personRes.results[0].id;
-        } catch { /* ignore */ }
+  // Randomize starting page (within safe range) to always show different results
+  const randomOffset = page === 1 ? Math.floor(Math.random() * 8) : 0;
+  const effectivePage = page + randomOffset;
+
+  // Preload 3 pages in parallel for smooth infinite scroll
+  const pagesToLoad = [effectivePage, effectivePage + 1, effectivePage + 2];
+
+  async function fetchPage(p: number): Promise<{ results: TMDBMovie[]; total_pages?: number }> {
+    switch (intent.type) {
+      case "popular": {
+        const [pop, top] = await Promise.all([getPopularMovies(p), getTopRatedMovies(p)]);
+        totalPages = Math.max(pop.total_pages ?? 1, top.total_pages ?? 1);
+        return { results: shuffle([...pop.results, ...top.results]), total_pages: totalPages };
       }
-      const res = await discoverMovies(params);
-      raw = res.results; totalPages = res.total_pages ?? 1; break;
+      case "top_rated": return getTopRatedMovies(p);
+      case "now_playing": {
+        const { getNowPlayingMovies } = await import("@/lib/tmdb");
+        return getNowPlayingMovies(p);
+      }
+      case "search": {
+        if (!intent.query) return { results: [] };
+        return searchMovies(intent.query, p);
+      }
+      case "similar": {
+        if (!intent.query) return { results: [] };
+        const searchRes = await searchMovies(intent.query);
+        if (!searchRes.results.length) return { results: [] };
+        const baseId = searchRes.results[0].id;
+        const [sim, rec] = await Promise.all([getSimilarMovies(baseId, p), getMovieRecommendations(baseId, p)]);
+        totalPages = Math.max(sim.total_pages ?? 1, rec.total_pages ?? 1);
+        return { results: [...sim.results, ...rec.results], total_pages: totalPages };
+      }
+      case "discover": {
+        const params: Record<string, string | number> = {
+          sort_by: intent.sortBy ?? "popularity.desc",
+          "vote_count.gte": intent.voteCountGte ?? 200,
+          page: p,
+        };
+        if (intent.genres?.length) params.with_genres = intent.genres.join(",");
+        if (intent.releaseDateLte) params["release_date.lte"] = intent.releaseDateLte;
+        if (intent.runtimeLte) params["with_runtime.lte"] = intent.runtimeLte;
+        if (intent.runtimeGte) params["with_runtime.gte"] = intent.runtimeGte;
+        if (intent.personName) {
+          try {
+            const personRes = await searchPerson(intent.personName);
+            if (personRes.results.length) params.with_people = personRes.results[0].id;
+          } catch { /* ignore */ }
+        }
+        const res = await discoverMovies(params);
+        totalPages = res.total_pages ?? 1;
+        return res;
+      }
+      default: return { results: [] };
     }
-    default:
-      return { movies: [], hasMore: false };
   }
 
-  const movies = await enrichMovies(raw, 12);
-  return { movies, hasMore: page < Math.min(totalPages, 20) };
+  // Fetch all 3 pages in parallel
+  const pages = await Promise.allSettled(pagesToLoad.map(fetchPage));
+  const allResults = pages
+    .filter((r): r is PromiseFulfilledResult<{ results: TMDBMovie[]; total_pages?: number }> => r.status === "fulfilled")
+    .flatMap((r) => r.value.results);
+
+  // Deduplicate by ID
+  const seen = new Set<number>();
+  raw = shuffle(allResults).filter((m) => {
+    if (seen.has(m.id)) return false;
+    seen.add(m.id);
+    return true;
+  });
+
+  if (pages[0].status === "fulfilled") {
+    totalPages = pages[0].value.total_pages ?? totalPages;
+  }
+
+  const movies = await enrichMovies(raw, 18);
+  return { movies, hasMore: effectivePage + 3 < Math.min(totalPages, 50) };
 }
 
 export default function HomePage() {
@@ -204,24 +235,33 @@ export default function HomePage() {
 
   const handleSurprise = useCallback(async () => {
     if (isLoading) return;
-    // Random page 1-10, all movies with rating >= 7 and 500+ votes
-    const randomPage = Math.floor(Math.random() * 10) + 1;
     const assistantId = `surprise-${Date.now()}`;
     setMessages((prev) => [
       ...prev,
       { id: `user-${assistantId}`, role: "user", content: "🎲 Sorprendeme" },
-      { id: assistantId, role: "assistant", content: "Eligiendo películas al azar...", isLoading: true },
+      { id: assistantId, role: "assistant", content: "Eligiendo...", isLoading: true },
     ]);
     setIsLoading(true);
     try {
-      const res = await discoverMovies({ sort_by: "vote_average.desc", "vote_count.gte": 500, page: randomPage });
-      const pool = res.results.filter((m: TMDBMovie) => m.vote_average >= 7);
-      // Shuffle and take up to 12
-      const shuffled = pool.sort(() => Math.random() - 0.5).slice(0, 12);
-      const enriched = await enrichMovies(shuffled, 12);
-      setMessages((prev) => prev.map((m) => m.id === assistantId ? { ...m, content: `🎲 Películas al azar — todas buenas (rating +7)`, movies: enriched, isLoading: false } : m));
+      // Load 5 random pages simultaneously from a 50-page pool
+      const pages = Array.from({ length: 5 }, () => Math.floor(Math.random() * 50) + 1);
+      const results = await Promise.allSettled(
+        pages.map((p) => discoverMovies({ sort_by: "vote_average.desc", "vote_count.gte": 300, page: p }))
+      );
+      const allMovies = results
+        .filter((r): r is PromiseFulfilledResult<{ results: TMDBMovie[] }> => r.status === "fulfilled")
+        .flatMap((r) => r.value.results)
+        .filter((m: TMDBMovie) => m.vote_average >= 6.5);
+      const seen = new Set<number>();
+      const unique = shuffle(allMovies).filter((m: TMDBMovie) => { if (seen.has(m.id)) return false; seen.add(m.id); return true; });
+      const enriched = await enrichMovies(unique, 18);
+      setMessages((prev) => prev.map((m) => m.id === assistantId ? {
+        ...m, content: "🎲 Películas al azar — mezcladas de todo TMDB", movies: enriched,
+        intent: { type: "discover" as const, sortBy: "vote_average.desc", voteCountGte: 300, message: "Random" },
+        page: 1, hasMore: true, isLoading: false,
+      } : m));
     } catch {
-      setMessages((prev) => prev.map((m) => m.id === assistantId ? { ...m, content: "No pude encontrar películas. Intentá de nuevo.", isLoading: false } : m));
+      setMessages((prev) => prev.map((m) => m.id === assistantId ? { ...m, content: "Error. Intentá de nuevo.", isLoading: false } : m));
     } finally {
       setIsLoading(false);
     }
@@ -272,10 +312,14 @@ export default function HomePage() {
   }, []);
 
   const handleLoadMore = useCallback(async (messageId: string) => {
-    setMessages((prev) => prev.map((m) => m.id === messageId ? { ...m, isLoadingMore: true } : m));
+    setMessages((prev) => {
+      const msg = prev.find((m) => m.id === messageId);
+      if (!msg?.intent || msg.isLoadingMore) return prev;
+      return prev.map((m) => m.id === messageId ? { ...m, isLoadingMore: true } : m);
+    });
     const msg = messages.find((m) => m.id === messageId);
-    if (!msg?.intent) return;
-    const nextPage = (msg.page ?? 1) + 1;
+    if (!msg?.intent || msg.isLoadingMore) return;
+    const nextPage = (msg.page ?? 1) + 3; // +3 because we load 3 pages at a time
     try {
       const result = await executeSearch(msg.intent, nextPage);
       setMessages((prev) => prev.map((m) => m.id === messageId ? {
@@ -424,9 +468,8 @@ export default function HomePage() {
                     onWatchlist={handleWatchlist}
                     watchlist={watchlist}
                     isLoading={message.isLoading}
-                    hasMore={message.hasMore}
                     isLoadingMore={message.isLoadingMore}
-                    onLoadMore={() => handleLoadMore(message.id)}
+                    onLoadMore={message.hasMore ? () => handleLoadMore(message.id) : undefined}
                   />
                 )}
               </div>
