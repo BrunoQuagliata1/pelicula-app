@@ -5,6 +5,7 @@ import Image from "next/image";
 import ChatInput from "@/components/ChatInput";
 import MovieGrid from "@/components/MovieGrid";
 import CountryPicker from "@/components/CountryPicker";
+import SwipeMode from "@/components/SwipeMode";
 import {
   TMDBMovie, getMovieDetails, getSimilarMovies, getMovieRecommendations,
   getPopularMovies, getTopRatedMovies, discoverMovies, searchMovies, searchPerson,
@@ -93,6 +94,8 @@ export default function HomePage() {
   const [isApiMissing, setIsApiMissing] = useState(false);
   const [watchlist, setWatchlist] = useState<TMDBMovie[]>([]);
   const [showWatchlist, setShowWatchlist] = useState(false);
+  const [swipeMovies, setSwipeMovies] = useState<TMDBMovie[]>([]);
+  const [showSwipe, setShowSwipe] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const hasMounted = useRef(false);
 
@@ -183,6 +186,75 @@ export default function HomePage() {
       setIsLoading(false);
     }
   }, [isLoading]);
+
+  const handleSurprise = useCallback(async () => {
+    if (isLoading) return;
+    // Random page between 1-20, random movie from that page, min rating 7, min votes 500
+    const randomPage = Math.floor(Math.random() * 20) + 1;
+    const assistantId = `surprise-${Date.now()}`;
+    setMessages((prev) => [
+      ...prev,
+      { id: `user-${assistantId}`, role: "user", content: "🎲 Sorprendeme" },
+      { id: assistantId, role: "assistant", content: "Eligiendo una película al azar...", isLoading: true },
+    ]);
+    setIsLoading(true);
+    try {
+      const res = await discoverMovies({ sort_by: "vote_average.desc", "vote_count.gte": 500, page: randomPage });
+      const pool = res.results.filter((m: TMDBMovie) => m.vote_average >= 7);
+      if (!pool.length) throw new Error("No movies");
+      const pick = pool[Math.floor(Math.random() * pool.length)];
+      const enriched = await getMovieDetails(pick.id);
+      setMessages((prev) => prev.map((m) => m.id === assistantId ? { ...m, content: "🎲 Tu película del azar:", movies: [enriched], isLoading: false } : m));
+    } catch {
+      setMessages((prev) => prev.map((m) => m.id === assistantId ? { ...m, content: "No pude encontrar una película. Intentá de nuevo.", isLoading: false } : m));
+    } finally {
+      setIsLoading(false);
+    }
+  }, [isLoading]);
+
+  const handleMood = useCallback(async (intent: SearchIntent, label: string) => {
+    if (isLoading) return;
+    const assistantId = `mood-${Date.now()}`;
+    setMessages((prev) => [
+      ...prev,
+      { id: `user-${assistantId}`, role: "user", content: `🎭 ${label}` },
+      { id: assistantId, role: "assistant", content: "Buscando...", isLoading: true },
+    ]);
+    setIsLoading(true);
+    try {
+      const movies = await executeSearch(intent);
+      setMessages((prev) => prev.map((m) => m.id === assistantId ? { ...m, content: `🎬 ${intent.message}`, movies, isLoading: false } : m));
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setMessages((prev) => prev.map((m) => m.id === assistantId ? { ...m, content: `Error: ${msg}`, isLoading: false } : m));
+    } finally {
+      setIsLoading(false);
+    }
+  }, [isLoading]);
+
+  const handleOpenSwipe = useCallback(async () => {
+    if (isLoading) return;
+    setIsLoading(true);
+    try {
+      // Load a good mix for swipe mode
+      const [pop, top] = await Promise.all([getPopularMovies(1), getTopRatedMovies(1)]);
+      const combined = [...pop.results.slice(0, 10), ...top.results.slice(0, 10)];
+      const seen = new Set<number>();
+      const unique = combined.filter((m) => { if (seen.has(m.id)) return false; seen.add(m.id); return true; });
+      const enriched = await enrichMovies(unique, 16);
+      setSwipeMovies(enriched);
+      setShowSwipe(true);
+    } catch {
+      // ignore
+    } finally {
+      setIsLoading(false);
+    }
+  }, [isLoading]);
+
+  const handleSwipeClose = useCallback(() => {
+    setShowSwipe(false);
+    setShowWatchlist(true); // show watchlist after swipe so they can see what they saved
+  }, []);
 
   const handleSubmit = useCallback(async (userInput: string) => {
     if (isLoading) return;
@@ -327,7 +399,26 @@ export default function HomePage() {
         <div ref={messagesEndRef} />
       </div>
 
-      <ChatInput onSubmit={handleSubmit} isLoading={isLoading} placeholder="¿Qué tipo de película quieres ver?" />
+      <ChatInput
+        onSubmit={handleSubmit}
+        onMood={handleMood}
+        onSurprise={handleSurprise}
+        onSwipe={handleOpenSwipe}
+        isLoading={isLoading}
+        placeholder="¿Qué tipo de película quieres ver?"
+      />
+
+      {/* Swipe mode */}
+      {showSwipe && (
+        <SwipeMode
+          movies={swipeMovies}
+          countryCode={country}
+          onLike={handleWatchlist}
+          onDislike={() => {}}
+          onClose={handleSwipeClose}
+          watchlist={watchlist}
+        />
+      )}
 
       {/* Watchlist panel (slide-over) */}
       {showWatchlist && (

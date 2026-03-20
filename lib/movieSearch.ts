@@ -2,7 +2,7 @@
 // No LLM needed: pure keyword extraction
 
 export interface SearchIntent {
-  type: "discover" | "search" | "similar" | "popular" | "top_rated" | "now_playing";
+  type: "discover" | "search" | "similar" | "popular" | "top_rated" | "now_playing" | "random";
   query?: string;         // for type=search or type=similar
   genres?: number[];      // TMDB genre IDs
   sortBy?: string;
