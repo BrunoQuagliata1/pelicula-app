@@ -7,18 +7,17 @@ interface MovieGridProps {
   movies: TMDBMovie[];
   countryCode: string;
   onSimilar: (movie: TMDBMovie) => void;
+  onWatchlist: (movie: TMDBMovie) => void;
+  watchlist: TMDBMovie[];
   isLoading?: boolean;
 }
 
-export default function MovieGrid({ movies, countryCode, onSimilar, isLoading }: MovieGridProps) {
+export default function MovieGrid({ movies, countryCode, onSimilar, onWatchlist, watchlist, isLoading }: MovieGridProps) {
   if (isLoading) {
     return (
       <div className="flex gap-4 overflow-x-auto pb-2 px-1">
         {Array.from({ length: 6 }).map((_, i) => (
-          <div
-            key={i}
-            className="flex-shrink-0 w-[185px] rounded-2xl bg-gray-900 border border-gray-800 overflow-hidden animate-pulse"
-          >
+          <div key={i} className="flex-shrink-0 w-[185px] rounded-2xl bg-gray-900 border border-gray-800 overflow-hidden animate-pulse">
             <div className="w-full aspect-[2/3] bg-gray-800" />
             <div className="p-3 space-y-2">
               <div className="h-4 bg-gray-800 rounded w-3/4" />
@@ -53,6 +52,8 @@ export default function MovieGrid({ movies, countryCode, onSimilar, isLoading }:
           movie={movie}
           countryCode={countryCode}
           onSimilar={onSimilar}
+          onWatchlist={onWatchlist}
+          inWatchlist={watchlist.some((m) => m.id === movie.id)}
         />
       ))}
     </div>

@@ -1,10 +1,15 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from "react";
+import Image from "next/image";
 import ChatInput from "@/components/ChatInput";
 import MovieGrid from "@/components/MovieGrid";
 import CountryPicker from "@/components/CountryPicker";
-import { TMDBMovie, getMovieDetails, getSimilarMovies, getMovieRecommendations, getPopularMovies, getTopRatedMovies, discoverMovies, searchMovies, searchPerson } from "@/lib/tmdb";
+import {
+  TMDBMovie, getMovieDetails, getSimilarMovies, getMovieRecommendations,
+  getPopularMovies, getTopRatedMovies, discoverMovies, searchMovies, searchPerson,
+  getPosterUrl, getYear,
+} from "@/lib/tmdb";
 import { parseUserInput, SearchIntent } from "@/lib/movieSearch";
 
 interface ChatMessage {
@@ -19,9 +24,7 @@ const DEFAULT_COUNTRY = "ES";
 
 async function enrichMovies(movies: TMDBMovie[], limit = 12): Promise<TMDBMovie[]> {
   const slice = movies.slice(0, limit);
-  const enriched = await Promise.allSettled(
-    slice.map((m) => getMovieDetails(m.id))
-  );
+  const enriched = await Promise.allSettled(slice.map((m) => getMovieDetails(m.id)));
   return enriched
     .filter((r): r is PromiseFulfilledResult<TMDBMovie> => r.status === "fulfilled")
     .map((r) => r.value);
@@ -30,96 +33,54 @@ async function enrichMovies(movies: TMDBMovie[], limit = 12): Promise<TMDBMovie[
 async function executeSearch(intent: SearchIntent): Promise<TMDBMovie[]> {
   switch (intent.type) {
     case "popular": {
-      const [pop, top] = await Promise.all([
-        getPopularMovies(1),
-        getTopRatedMovies(1),
-      ]);
-      const combined = [
-        ...pop.results.slice(0, 8),
-        ...top.results.slice(0, 8),
-      ];
-      // Deduplicate
+      const [pop, top] = await Promise.all([getPopularMovies(1), getTopRatedMovies(1)]);
+      const combined = [...pop.results.slice(0, 8), ...top.results.slice(0, 8)];
       const seen = new Set<number>();
-      const unique = combined.filter((m) => {
-        if (seen.has(m.id)) return false;
-        seen.add(m.id);
-        return true;
-      });
-      return enrichMovies(unique);
+      return enrichMovies(combined.filter((m) => { if (seen.has(m.id)) return false; seen.add(m.id); return true; }));
     }
-
     case "top_rated": {
       const res = await getTopRatedMovies(1);
       return enrichMovies(res.results);
     }
-
     case "now_playing": {
       const { getNowPlayingMovies } = await import("@/lib/tmdb");
       const res = await getNowPlayingMovies(1);
       return enrichMovies(res.results);
     }
-
     case "search": {
       if (!intent.query) return [];
       const res = await searchMovies(intent.query);
       return enrichMovies(res.results);
     }
-
     case "similar": {
       if (!intent.query) return [];
-      // Search for the base movie
       const searchRes = await searchMovies(intent.query);
       if (!searchRes.results.length) return [];
       const baseId = searchRes.results[0].id;
-      const [similar, recommendations] = await Promise.all([
-        getSimilarMovies(baseId),
-        getMovieRecommendations(baseId),
-      ]);
+      const [similar, recommendations] = await Promise.all([getSimilarMovies(baseId), getMovieRecommendations(baseId)]);
       const combined = [...similar.results, ...recommendations.results];
       const seen = new Set<number>();
-      const unique = combined.filter((m) => {
-        if (seen.has(m.id)) return false;
-        seen.add(m.id);
-        return true;
-      });
-      return enrichMovies(unique);
+      return enrichMovies(combined.filter((m) => { if (seen.has(m.id)) return false; seen.add(m.id); return true; }));
     }
-
     case "discover": {
       const params: Record<string, string | number> = {
         sort_by: intent.sortBy ?? "popularity.desc",
         "vote_count.gte": intent.voteCountGte ?? 200,
         page: 1,
       };
-      if (intent.genres?.length) {
-        params.with_genres = intent.genres.join(",");
-      }
-      if (intent.releaseDateLte) {
-        params["release_date.lte"] = intent.releaseDateLte;
-      }
-      if (intent.runtimeLte) {
-        params["with_runtime.lte"] = intent.runtimeLte;
-      }
-      if (intent.runtimeGte) {
-        params["with_runtime.gte"] = intent.runtimeGte;
-      }
-
-      // If we have a person, first look up their ID
+      if (intent.genres?.length) params.with_genres = intent.genres.join(",");
+      if (intent.releaseDateLte) params["release_date.lte"] = intent.releaseDateLte;
+      if (intent.runtimeLte) params["with_runtime.lte"] = intent.runtimeLte;
+      if (intent.runtimeGte) params["with_runtime.gte"] = intent.runtimeGte;
       if (intent.personName) {
         try {
           const personRes = await searchPerson(intent.personName);
-          if (personRes.results.length) {
-            params.with_people = personRes.results[0].id;
-          }
-        } catch {
-          // ignore
-        }
+          if (personRes.results.length) params.with_people = personRes.results[0].id;
+        } catch { /* ignore */ }
       }
-
       const res = await discoverMovies(params);
       return enrichMovies(res.results);
     }
-
     default:
       return [];
   }
@@ -130,10 +91,12 @@ export default function HomePage() {
   const [country, setCountry] = useState<string>(DEFAULT_COUNTRY);
   const [isLoading, setIsLoading] = useState(false);
   const [isApiMissing, setIsApiMissing] = useState(false);
+  const [watchlist, setWatchlist] = useState<TMDBMovie[]>([]);
+  const [showWatchlist, setShowWatchlist] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const hasMounted = useRef(false);
 
-  // Detect country on mount
+  // Country detection
   useEffect(() => {
     const stored = localStorage.getItem("pelicula-country");
     if (stored) {
@@ -141,101 +104,103 @@ export default function HomePage() {
     } else {
       fetch("https://ipapi.co/json/")
         .then((r) => r.json())
-        .then((data) => {
-          if (data.country_code) {
-            setCountry(data.country_code);
-            localStorage.setItem("pelicula-country", data.country_code);
-          }
-        })
-        .catch(() => {/* use default */});
+        .then((data) => { if (data.country_code) { setCountry(data.country_code); localStorage.setItem("pelicula-country", data.country_code); } })
+        .catch(() => {});
     }
   }, []);
 
-  // Load initial popular movies
+  // Load watchlist from localStorage
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem("pelicula-watchlist");
+      if (stored) setWatchlist(JSON.parse(stored));
+    } catch { /* ignore */ }
+  }, []);
+
+  // Load initial movies
   useEffect(() => {
     if (hasMounted.current) return;
     hasMounted.current = true;
-
     const loadInitial = async () => {
       const loadingId = "initial";
-      setMessages([
-        {
-          id: loadingId,
-          role: "assistant",
-          content: "Cargando películas populares...",
-          isLoading: true,
-        },
-      ]);
-
+      setMessages([{ id: loadingId, role: "assistant", content: "Cargando películas populares...", isLoading: true }]);
       try {
         const movies = await executeSearch({ type: "popular", message: "Películas populares" });
-        setMessages([
-          {
-            id: loadingId,
-            role: "assistant",
-            content: "🎬 Películas populares del momento",
-            movies,
-          },
-        ]);
+        setMessages([{ id: loadingId, role: "assistant", content: "🎬 Películas populares del momento", movies }]);
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         if (msg.includes("TMDB_API_KEY") || msg.includes("401")) {
           setIsApiMissing(true);
           setMessages([]);
         } else {
-          setMessages([
-            {
-              id: loadingId,
-              role: "assistant",
-              content: `Error al cargar películas: ${msg}`,
-            },
-          ]);
+          setMessages([{ id: loadingId, role: "assistant", content: `Error al cargar películas: ${msg}` }]);
         }
       }
     };
-
     loadInitial();
   }, []);
 
-  // Scroll to bottom on new message
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
+  // Watchlist handlers
+  const handleWatchlist = useCallback((movie: TMDBMovie) => {
+    setWatchlist((prev) => {
+      const exists = prev.some((m) => m.id === movie.id);
+      const next = exists ? prev.filter((m) => m.id !== movie.id) : [...prev, movie];
+      localStorage.setItem("pelicula-watchlist", JSON.stringify(next));
+      return next;
+    });
+  }, []);
+
+  const handleClearWatchlist = useCallback(() => {
+    setWatchlist([]);
+    localStorage.removeItem("pelicula-watchlist");
+  }, []);
+
+  const handleSimilarFromWatchlist = useCallback(async (movie: TMDBMovie) => {
+    setShowWatchlist(false);
+    if (isLoading) return;
+    const assistantId = `similar-wl-${movie.id}-${Date.now()}`;
+    setMessages((prev) => [
+      ...prev,
+      { id: `user-${assistantId}`, role: "user", content: `Algo como "${movie.title}" (desde Mi lista)` },
+      { id: assistantId, role: "assistant", content: "Buscando películas similares...", isLoading: true },
+    ]);
+    setIsLoading(true);
+    try {
+      const [similar, recommendations] = await Promise.all([getSimilarMovies(movie.id), getMovieRecommendations(movie.id)]);
+      const combined = [...similar.results, ...recommendations.results];
+      const seen = new Set<number>([movie.id]);
+      const unique = combined.filter((m) => { if (seen.has(m.id)) return false; seen.add(m.id); return true; });
+      const enriched = await enrichMovies(unique);
+      setMessages((prev) => prev.map((m) => m.id === assistantId ? { ...m, content: `🎬 Similares a "${movie.title}"`, movies: enriched, isLoading: false } : m));
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setMessages((prev) => prev.map((m) => m.id === assistantId ? { ...m, content: `Error: ${msg}`, isLoading: false } : m));
+    } finally {
+      setIsLoading(false);
+    }
+  }, [isLoading]);
+
   const handleSubmit = useCallback(async (userInput: string) => {
     if (isLoading) return;
-
     const userId = Date.now().toString();
     const assistantId = `${userId}-reply`;
-
-    // Add user message
     setMessages((prev) => [
       ...prev,
       { id: userId, role: "user", content: userInput },
       { id: assistantId, role: "assistant", content: "Buscando...", isLoading: true },
     ]);
     setIsLoading(true);
-
     try {
       const intent = await parseUserInput(userInput);
       const movies = await executeSearch(intent);
-
-      setMessages((prev) =>
-        prev.map((m) =>
-          m.id === assistantId
-            ? { ...m, content: `🎬 ${intent.message}`, movies, isLoading: false }
-            : m
-        )
-      );
+      setMessages((prev) => prev.map((m) => m.id === assistantId ? { ...m, content: `🎬 ${intent.message}`, movies, isLoading: false } : m));
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      setMessages((prev) =>
-        prev.map((m) =>
-          m.id === assistantId
-            ? { ...m, content: `Error: ${msg}`, isLoading: false }
-            : m
-        )
-      );
+      setMessages((prev) => prev.map((m) => m.id === assistantId ? { ...m, content: `Error: ${msg}`, isLoading: false } : m));
     } finally {
       setIsLoading(false);
     }
@@ -243,62 +208,23 @@ export default function HomePage() {
 
   const handleSimilar = useCallback(async (movie: TMDBMovie) => {
     if (isLoading) return;
-
     const assistantId = `similar-${movie.id}-${Date.now()}`;
-
     setMessages((prev) => [
       ...prev,
-      {
-        id: `user-${assistantId}`,
-        role: "user",
-        content: `Algo como "${movie.title}"`,
-      },
-      {
-        id: assistantId,
-        role: "assistant",
-        content: "Buscando películas similares...",
-        isLoading: true,
-      },
+      { id: `user-${assistantId}`, role: "user", content: `Algo como "${movie.title}"` },
+      { id: assistantId, role: "assistant", content: "Buscando películas similares...", isLoading: true },
     ]);
     setIsLoading(true);
-
     try {
-      const [similar, recommendations] = await Promise.all([
-        getSimilarMovies(movie.id),
-        getMovieRecommendations(movie.id),
-      ]);
-
+      const [similar, recommendations] = await Promise.all([getSimilarMovies(movie.id), getMovieRecommendations(movie.id)]);
       const combined = [...similar.results, ...recommendations.results];
       const seen = new Set<number>([movie.id]);
-      const unique = combined.filter((m) => {
-        if (seen.has(m.id)) return false;
-        seen.add(m.id);
-        return true;
-      });
-
+      const unique = combined.filter((m) => { if (seen.has(m.id)) return false; seen.add(m.id); return true; });
       const enriched = await enrichMovies(unique);
-
-      setMessages((prev) =>
-        prev.map((m) =>
-          m.id === assistantId
-            ? {
-                ...m,
-                content: `🎬 Películas similares a "${movie.title}"`,
-                movies: enriched,
-                isLoading: false,
-              }
-            : m
-        )
-      );
+      setMessages((prev) => prev.map((m) => m.id === assistantId ? { ...m, content: `🎬 Películas similares a "${movie.title}"`, movies: enriched, isLoading: false } : m));
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      setMessages((prev) =>
-        prev.map((m) =>
-          m.id === assistantId
-            ? { ...m, content: `Error: ${msg}`, isLoading: false }
-            : m
-        )
-      );
+      setMessages((prev) => prev.map((m) => m.id === assistantId ? { ...m, content: `Error: ${msg}`, isLoading: false } : m));
     } finally {
       setIsLoading(false);
     }
@@ -312,50 +238,45 @@ export default function HomePage() {
           <span className="text-xl">🎬</span>
           <div>
             <h1 className="text-base font-bold text-white leading-tight">¿Qué película ver?</h1>
-            <p className="text-xs text-gray-500 leading-tight hidden sm:block">
-              Recomendaciones personalizadas
-            </p>
+            <p className="text-xs text-gray-500 leading-tight hidden sm:block">Recomendaciones personalizadas</p>
           </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-3">
           <span className="text-xs text-gray-500 hidden sm:block">Streaming en:</span>
           <CountryPicker currentCountry={country} onCountryChange={setCountry} />
+
+          {/* Watchlist button */}
+          <button
+            onClick={() => setShowWatchlist(true)}
+            className="relative flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-gray-800 hover:bg-gray-700 transition-colors text-sm text-gray-300"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M5 3h14a1 1 0 011 1v17l-7-3.5L5 21V4a1 1 0 011-1z" />
+            </svg>
+            <span className="hidden sm:inline">Mi lista</span>
+            {watchlist.length > 0 && (
+              <span className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-yellow-400 text-gray-900 text-xs font-bold flex items-center justify-center">
+                {watchlist.length}
+              </span>
+            )}
+          </button>
         </div>
       </header>
 
       {/* Messages */}
       <div className="flex-1 overflow-y-auto px-4 py-4 space-y-6">
-        {/* API Key missing banner */}
         {isApiMissing && (
           <div className="bg-amber-900/30 border border-amber-700/50 rounded-2xl p-4 text-sm">
             <div className="flex items-start gap-3">
               <span className="text-2xl">⚠️</span>
               <div>
                 <p className="font-semibold text-amber-300 mb-1">Clave de API no configurada</p>
-                <p className="text-amber-400/80 mb-2">
-                  Para usar esta app necesitas una clave gratuita de TMDB.
-                </p>
+                <p className="text-amber-400/80 mb-2">Para usar esta app necesitas una clave gratuita de TMDB.</p>
                 <ol className="text-amber-400/70 space-y-1 list-decimal list-inside text-xs">
-                  <li>
-                    Regístrate gratis en{" "}
-                    <a
-                      href="https://www.themoviedb.org/settings/api"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-amber-300 underline"
-                    >
-                      themoviedb.org
-                    </a>
-                  </li>
+                  <li>Regístrate gratis en <a href="https://www.themoviedb.org/settings/api" target="_blank" rel="noopener noreferrer" className="text-amber-300 underline">themoviedb.org</a></li>
                   <li>Copia tu API Key (v3)</li>
-                  <li>
-                    Crea el archivo <code className="bg-amber-950/50 px-1 rounded">.env.local</code>{" "}
-                    en la raíz del proyecto
-                  </li>
-                  <li>
-                    Agrega:{" "}
-                    <code className="bg-amber-950/50 px-1 rounded">TMDB_API_KEY=tu_clave_aqui</code>
-                  </li>
+                  <li>Crea el archivo <code className="bg-amber-950/50 px-1 rounded">.env.local</code> en la raíz del proyecto</li>
+                  <li>Agrega: <code className="bg-amber-950/50 px-1 rounded">TMDB_API_KEY=tu_clave_aqui</code></li>
                   <li>Reinicia el servidor con <code className="bg-amber-950/50 px-1 rounded">npm run dev</code></li>
                 </ol>
               </div>
@@ -365,19 +286,13 @@ export default function HomePage() {
 
         {messages.map((message) => (
           <div key={message.id} className="animate-slide-up">
-            {/* User message */}
             {message.role === "user" && (
               <div className="flex justify-end mb-2">
-                <div className="max-w-xs bg-indigo-600 text-white rounded-2xl rounded-tr-sm px-4 py-2.5 text-sm">
-                  {message.content}
-                </div>
+                <div className="max-w-xs bg-indigo-600 text-white rounded-2xl rounded-tr-sm px-4 py-2.5 text-sm">{message.content}</div>
               </div>
             )}
-
-            {/* Assistant message */}
             {message.role === "assistant" && (
               <div className="space-y-3">
-                {/* Label */}
                 <div className="flex items-center gap-2">
                   <div className="w-6 h-6 rounded-full bg-indigo-700 flex items-center justify-center flex-shrink-0">
                     <span className="text-xs">🎬</span>
@@ -387,27 +302,21 @@ export default function HomePage() {
                       <span className="flex items-center gap-2">
                         <span className="inline-flex gap-1">
                           {[0, 1, 2].map((i) => (
-                            <span
-                              key={i}
-                              className="w-1.5 h-1.5 bg-indigo-400 rounded-full animate-bounce"
-                              style={{ animationDelay: `${i * 0.15}s` }}
-                            />
+                            <span key={i} className="w-1.5 h-1.5 bg-indigo-400 rounded-full animate-bounce" style={{ animationDelay: `${i * 0.15}s` }} />
                           ))}
                         </span>
                         {message.content}
                       </span>
-                    ) : (
-                      message.content
-                    )}
+                    ) : message.content}
                   </p>
                 </div>
-
-                {/* Movies grid */}
                 {(message.movies || message.isLoading) && (
                   <MovieGrid
                     movies={message.movies ?? []}
                     countryCode={country}
                     onSimilar={handleSimilar}
+                    onWatchlist={handleWatchlist}
+                    watchlist={watchlist}
                     isLoading={message.isLoading}
                   />
                 )}
@@ -415,16 +324,101 @@ export default function HomePage() {
             )}
           </div>
         ))}
-
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Chat input */}
-      <ChatInput
-        onSubmit={handleSubmit}
-        isLoading={isLoading}
-        placeholder="¿Qué tipo de película quieres ver?"
-      />
+      <ChatInput onSubmit={handleSubmit} isLoading={isLoading} placeholder="¿Qué tipo de película quieres ver?" />
+
+      {/* Watchlist panel (slide-over) */}
+      {showWatchlist && (
+        <div className="fixed inset-0 z-50 flex">
+          {/* Backdrop */}
+          <div className="flex-1 bg-black/60 backdrop-blur-sm" onClick={() => setShowWatchlist(false)} />
+
+          {/* Panel */}
+          <div className="w-full max-w-sm bg-gray-950 border-l border-gray-800 flex flex-col h-full overflow-hidden animate-slide-up">
+            {/* Panel header */}
+            <div className="flex items-center justify-between px-4 py-4 border-b border-gray-800">
+              <div className="flex items-center gap-2">
+                <svg className="w-5 h-5 text-yellow-400" fill="currentColor" viewBox="0 0 24 24">
+                  <path d="M5 3h14a1 1 0 011 1v17l-7-3.5L5 21V4a1 1 0 011-1z" />
+                </svg>
+                <h2 className="font-semibold text-white">Mi lista</h2>
+                <span className="text-xs text-gray-500">{watchlist.length} película{watchlist.length !== 1 ? "s" : ""}</span>
+              </div>
+              <div className="flex items-center gap-2">
+                {watchlist.length > 0 && (
+                  <button onClick={handleClearWatchlist} className="text-xs text-gray-500 hover:text-red-400 transition-colors">
+                    Limpiar
+                  </button>
+                )}
+                <button onClick={() => setShowWatchlist(false)} className="w-8 h-8 rounded-lg bg-gray-800 hover:bg-gray-700 flex items-center justify-center text-gray-400 hover:text-white transition-colors">
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+            </div>
+
+            {/* Panel content */}
+            <div className="flex-1 overflow-y-auto p-4">
+              {watchlist.length === 0 ? (
+                <div className="flex flex-col items-center justify-center h-full gap-3 text-center">
+                  <svg className="w-14 h-14 text-gray-700" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M5 3h14a1 1 0 011 1v17l-7-3.5L5 21V4a1 1 0 011-1z" />
+                  </svg>
+                  <p className="text-gray-500 text-sm">Tu lista está vacía</p>
+                  <p className="text-gray-600 text-xs">Guardá películas tocando el 🔖 en cada card</p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {watchlist.map((movie) => {
+                    const poster = getPosterUrl(movie.poster_path, "w342");
+                    const year = getYear(movie.release_date);
+                    const rating = movie.vote_average?.toFixed(1);
+                    return (
+                      <div key={movie.id} className="flex gap-3 bg-gray-900 rounded-xl overflow-hidden border border-gray-800 hover:border-gray-700 transition-colors">
+                        {/* Mini poster */}
+                        <div className="relative w-14 h-20 flex-shrink-0 bg-gray-800">
+                          {poster && <Image src={poster} alt={movie.title} fill sizes="56px" className="object-cover" />}
+                        </div>
+                        {/* Info */}
+                        <div className="flex flex-col flex-1 py-2 pr-2 gap-1 min-w-0">
+                          <p className="font-medium text-sm text-white leading-tight line-clamp-2">{movie.title}</p>
+                          <div className="flex items-center gap-1.5 text-xs text-gray-500">
+                            {year && <span>{year}</span>}
+                            {rating && parseFloat(rating) > 0 && (
+                              <>
+                                <span>·</span>
+                                <svg className="w-3 h-3" viewBox="0 0 24 24" fill="#F5C518"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" /></svg>
+                                <span style={{ color: "#F5C518" }}>{rating}</span>
+                              </>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-2 mt-auto">
+                            <button
+                              onClick={() => handleSimilarFromWatchlist(movie)}
+                              className="text-xs px-2 py-1 rounded-lg bg-indigo-900/50 hover:bg-indigo-800/70 border border-indigo-800/50 text-indigo-300 hover:text-indigo-200 transition-all"
+                            >
+                              Como esta →
+                            </button>
+                            <button
+                              onClick={() => handleWatchlist(movie)}
+                              className="text-xs px-2 py-1 rounded-lg bg-gray-800 hover:bg-red-900/40 border border-gray-700 hover:border-red-800/50 text-gray-400 hover:text-red-400 transition-all"
+                            >
+                              Quitar
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
