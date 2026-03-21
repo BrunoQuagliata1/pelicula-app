@@ -39,7 +39,7 @@ export default function MovieGrid({ movies, countryCode, onSimilar, onWatchlist,
     return (
       <div className="flex gap-4 overflow-x-auto pb-2 px-1 no-scrollbar">
         {Array.from({ length: 8 }).map((_, i) => (
-          <div key={i} className="flex-shrink-0 w-[185px] rounded-2xl bg-gray-900 border border-gray-800 overflow-hidden animate-pulse">
+          <div key={i} className="flex-shrink-0 w-[220px] rounded-2xl bg-gray-900 border border-gray-800 overflow-hidden animate-pulse">
             <div className="w-full aspect-[2/3] bg-gray-800" />
             <div className="p-3 space-y-2">
               <div className="h-4 bg-gray-800 rounded w-3/4" />
@@ -81,7 +81,7 @@ export default function MovieGrid({ movies, countryCode, onSimilar, onWatchlist,
 
       {/* Skeleton cards while loading more — appear at the end seamlessly */}
       {isLoadingMore && Array.from({ length: 4 }).map((_, i) => (
-        <div key={`skeleton-${i}`} className="flex-shrink-0 w-[185px] rounded-2xl bg-gray-900 border border-gray-800 overflow-hidden animate-pulse">
+        <div key={`skeleton-${i}`} className="flex-shrink-0 w-[220px] rounded-2xl bg-gray-900 border border-gray-800 overflow-hidden animate-pulse">
           <div className="w-full aspect-[2/3] bg-gray-800" />
           <div className="p-3 space-y-2">
             <div className="h-4 bg-gray-800 rounded w-3/4" />

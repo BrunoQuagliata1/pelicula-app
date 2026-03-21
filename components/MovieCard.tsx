@@ -1,8 +1,20 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import Image from "next/image";
-import { TMDBMovie, getPosterUrl, getLogoUrl, formatRuntime, getYear, getStreamingProviders } from "@/lib/tmdb";
+import {
+  TMDBMovie,
+  TMDBVideo,
+  TMDBImage,
+  getPosterUrl,
+  getBackdropUrl,
+  getLogoUrl,
+  formatRuntime,
+  getYear,
+  getStreamingProviders,
+  getMovieVideos,
+  getMovieImages,
+} from "@/lib/tmdb";
 
 interface MovieCardProps {
   movie: TMDBMovie;
@@ -12,8 +24,22 @@ interface MovieCardProps {
   inWatchlist: boolean;
 }
 
+// Cache fetched trailer/images per movie id to avoid redundant API calls
+const mediaCache = new Map<number, { trailerKey: string | null; backdrops: string[] }>();
+
 export default function MovieCard({ movie, countryCode, onSimilar, onWatchlist, inWatchlist }: MovieCardProps) {
   const [posterError, setPosterError] = useState(false);
+
+  // Hover / interaction state
+  const [isHovered, setIsHovered] = useState(false);
+  const [trailerKey, setTrailerKey] = useState<string | null>(movie.trailerKey ?? null);
+  const [backdrops, setBackdrops] = useState<string[]>(movie.backdrops ?? []);
+  const [mediaLoaded, setMediaLoaded] = useState(false);
+  const [showTrailer, setShowTrailer] = useState(false);
+  const [galleryIndex, setGalleryIndex] = useState(0);
+  const [showGallery, setShowGallery] = useState(false);
+  const hoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isFetching = useRef(false);
 
   const year = getYear(movie.release_date);
   const runtime = formatRuntime(movie.runtime);
@@ -23,17 +49,103 @@ export default function MovieCard({ movie, countryCode, onSimilar, onWatchlist, 
   const streaming = getStreamingProviders(movie, countryCode);
   const posterUrl = posterError ? null : getPosterUrl(movie.poster_path, "w342");
 
+  // Lazily fetch trailer + backdrops on first hover
+  const fetchMedia = useCallback(async () => {
+    if (mediaLoaded || isFetching.current) return;
+    if (mediaCache.has(movie.id)) {
+      const cached = mediaCache.get(movie.id)!;
+      setTrailerKey(cached.trailerKey);
+      setBackdrops(cached.backdrops);
+      setMediaLoaded(true);
+      return;
+    }
+    isFetching.current = true;
+    try {
+      const [videosRes, imagesRes] = await Promise.allSettled([
+        getMovieVideos(movie.id),
+        getMovieImages(movie.id),
+      ]);
+
+      // Best trailer: official YouTube trailer first, then teaser
+      let key: string | null = null;
+      if (videosRes.status === "fulfilled") {
+        const vids: TMDBVideo[] = videosRes.value.results ?? [];
+        const trailer =
+          vids.find((v) => v.site === "YouTube" && v.type === "Trailer" && v.official) ??
+          vids.find((v) => v.site === "YouTube" && v.type === "Trailer") ??
+          vids.find((v) => v.site === "YouTube" && v.type === "Teaser");
+        key = trailer?.key ?? null;
+      }
+
+      // Top backdrops (up to 6, sorted by vote)
+      let bdps: string[] = [];
+      if (imagesRes.status === "fulfilled") {
+        const imgs: TMDBImage[] = imagesRes.value.backdrops ?? [];
+        bdps = imgs
+          .sort((a, b) => b.vote_average - a.vote_average)
+          .slice(0, 6)
+          .map((img) => getBackdropUrl(img.file_path, "w780"));
+      }
+
+      // Fallback: use backdrop_path from movie data
+      if (bdps.length === 0 && movie.backdrop_path) {
+        bdps = [getBackdropUrl(movie.backdrop_path, "w780")];
+      }
+
+      mediaCache.set(movie.id, { trailerKey: key, backdrops: bdps });
+      setTrailerKey(key);
+      setBackdrops(bdps);
+    } finally {
+      isFetching.current = false;
+      setMediaLoaded(true);
+    }
+  }, [movie.id, movie.backdrop_path, mediaLoaded]);
+
+  const handleMouseEnter = useCallback(() => {
+    setIsHovered(true);
+    // Start fetch immediately on hover, show trailer after 600ms so fast scrollers don't trigger it
+    fetchMedia();
+    hoverTimer.current = setTimeout(() => setShowTrailer(true), 600);
+  }, [fetchMedia]);
+
+  const handleMouseLeave = useCallback(() => {
+    setIsHovered(false);
+    setShowTrailer(false);
+    if (hoverTimer.current) clearTimeout(hoverTimer.current);
+  }, []);
+
+  useEffect(() => {
+    return () => { if (hoverTimer.current) clearTimeout(hoverTimer.current); };
+  }, []);
+
+  // Gallery keyboard nav
+  const nextPhoto = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation();
+    setGalleryIndex((i) => (i + 1) % backdrops.length);
+  }, [backdrops.length]);
+
+  const prevPhoto = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation();
+    setGalleryIndex((i) => (i - 1 + backdrops.length) % backdrops.length);
+  }, [backdrops.length]);
+
   return (
-    <div className="movie-card flex flex-col bg-gray-900 rounded-2xl overflow-hidden border border-gray-800 hover:border-gray-700 w-[185px] flex-shrink-0 relative">
-      {/* Poster */}
-      <div className="relative w-full aspect-[2/3] bg-gray-800 overflow-hidden group">
+    <div
+      className="movie-card flex flex-col bg-gray-900 rounded-2xl overflow-hidden border border-gray-800 hover:border-gray-600 w-[220px] flex-shrink-0 relative transition-all duration-200 hover:shadow-xl hover:shadow-black/40 hover:-translate-y-0.5"
+      onMouseEnter={handleMouseEnter}
+      onMouseLeave={handleMouseLeave}
+    >
+      {/* ── Poster / Trailer / Gallery area ─────────────────────────── */}
+      <div className="relative w-full aspect-[2/3] bg-gray-800 overflow-hidden">
+
+        {/* Poster (base layer) */}
         {posterUrl ? (
           <Image
             src={posterUrl}
             alt={movie.title}
             fill
-            sizes="185px"
-            className="object-cover"
+            sizes="220px"
+            className={`object-cover transition-opacity duration-300 ${showTrailer ? "opacity-0" : "opacity-100"}`}
             onError={() => setPosterError(true)}
           />
         ) : (
@@ -45,17 +157,31 @@ export default function MovieCard({ movie, countryCode, onSimilar, onWatchlist, 
           </div>
         )}
 
-        {/* Overview on hover */}
-        {movie.overview && (
-          <div className="absolute inset-0 bg-gray-950/95 p-3 opacity-0 group-hover:opacity-100 transition-opacity duration-200 overflow-y-auto flex items-start">
+        {/* Trailer iframe — only mounts after hover delay + trailer key exists */}
+        {showTrailer && trailerKey && (
+          <div className="absolute inset-0 z-10">
+            <iframe
+              src={`https://www.youtube.com/embed/${trailerKey}?autoplay=1&mute=1&controls=0&modestbranding=1&rel=0&loop=1&playlist=${trailerKey}`}
+              allow="autoplay; encrypted-media"
+              className="w-full h-full border-0"
+              title={`Trailer ${movie.title}`}
+            />
+            {/* Gradient overlay so bottom info stays readable */}
+            <div className="absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t from-gray-900 to-transparent pointer-events-none" />
+          </div>
+        )}
+
+        {/* Overview overlay — shows on hover when no trailer or before trailer loads */}
+        {isHovered && !showTrailer && movie.overview && (
+          <div className="absolute inset-0 bg-gray-950/90 p-3 z-10 overflow-y-auto flex items-start transition-opacity duration-150">
             <p className="text-xs text-gray-200 leading-relaxed">{movie.overview}</p>
           </div>
         )}
 
-        {/* Watchlist button — top right corner */}
+        {/* Watchlist button */}
         <button
           onClick={(e) => { e.stopPropagation(); onWatchlist(movie); }}
-          className={`absolute top-2 right-2 z-10 w-8 h-8 rounded-full flex items-center justify-center transition-all shadow-lg ${
+          className={`absolute top-2 right-2 z-20 w-8 h-8 rounded-full flex items-center justify-center transition-all shadow-lg ${
             inWatchlist
               ? "bg-yellow-400 text-gray-900 scale-110"
               : "bg-gray-900/80 text-gray-400 hover:bg-gray-800 hover:text-yellow-400"
@@ -66,9 +192,17 @@ export default function MovieCard({ movie, countryCode, onSimilar, onWatchlist, 
             <path strokeLinecap="round" strokeLinejoin="round" d="M5 3h14a1 1 0 011 1v17l-7-3.5L5 21V4a1 1 0 011-1z" />
           </svg>
         </button>
+
+        {/* Trailer indicator badge */}
+        {trailerKey && !showTrailer && isHovered && (
+          <div className="absolute bottom-2 left-2 z-20 flex items-center gap-1 bg-black/70 text-white text-xs px-2 py-1 rounded-full">
+            <svg className="w-3 h-3 text-red-400" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+            Trailer
+          </div>
+        )}
       </div>
 
-      {/* Info */}
+      {/* ── Info area ────────────────────────────────────────────────── */}
       <div className="flex flex-col flex-1 p-3 gap-2">
         <div>
           <h3 className="font-semibold text-sm text-white leading-tight line-clamp-2">{movie.title}</h3>
@@ -108,6 +242,56 @@ export default function MovieCard({ movie, countryCode, onSimilar, onWatchlist, 
           </div>
         )}
 
+        {/* ── Photo gallery strip ─────────────────────────────────────── */}
+        {backdrops.length > 0 && (
+          <div className="relative">
+            <button
+              onClick={(e) => { e.stopPropagation(); fetchMedia(); setShowGallery((v) => !v); }}
+              className="flex items-center gap-1 text-xs text-gray-500 hover:text-gray-300 transition-colors"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+              </svg>
+              {backdrops.length} fotos
+            </button>
+
+            {/* Expanded gallery */}
+            {showGallery && (
+              <div className="mt-1.5 relative rounded-lg overflow-hidden bg-gray-950 aspect-video">
+                <Image
+                  src={backdrops[galleryIndex]}
+                  alt={`${movie.title} - foto ${galleryIndex + 1}`}
+                  fill
+                  sizes="194px"
+                  className="object-cover"
+                />
+                {backdrops.length > 1 && (
+                  <>
+                    <button
+                      onClick={prevPhoto}
+                      className="absolute left-1 top-1/2 -translate-y-1/2 w-6 h-6 rounded-full bg-black/60 hover:bg-black/80 flex items-center justify-center text-white text-xs transition-colors z-10"
+                    >‹</button>
+                    <button
+                      onClick={nextPhoto}
+                      className="absolute right-1 top-1/2 -translate-y-1/2 w-6 h-6 rounded-full bg-black/60 hover:bg-black/80 flex items-center justify-center text-white text-xs transition-colors z-10"
+                    >›</button>
+                    <div className="absolute bottom-1 inset-x-0 flex justify-center gap-1">
+                      {backdrops.map((_, i) => (
+                        <button
+                          key={i}
+                          onClick={(e) => { e.stopPropagation(); setGalleryIndex(i); }}
+                          className={`w-1.5 h-1.5 rounded-full transition-colors ${i === galleryIndex ? "bg-white" : "bg-white/30"}`}
+                        />
+                      ))}
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Streaming providers */}
         <div className="mt-auto pt-2 border-t border-gray-800">
           {streaming.length > 0 ? (
             <div className="flex flex-wrap gap-1.5 items-center">

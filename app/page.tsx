@@ -224,7 +224,7 @@ export default function HomePage() {
       const seen = new Set<number>([movie.id]);
       const unique = combined.filter((m) => { if (seen.has(m.id)) return false; seen.add(m.id); return true; });
       const enriched = await enrichMovies(unique);
-      setMessages((prev) => prev.map((m) => m.id === assistantId ? { ...m, content: `🎬 Similares a "${movie.title}"`, movies: enriched, page: 1, hasMore: false, isLoading: false } : m));
+      setMessages((prev) => prev.map((m) => m.id === assistantId ? { ...m, content: `🎬 Similares a "${movie.title}"`, movies: enriched, intent: { type: "similar" as const, query: movie.title, message: `Similares a "${movie.title}"` }, page: 1, hasMore: true, isLoading: false } : m));
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       setMessages((prev) => prev.map((m) => m.id === assistantId ? { ...m, content: `Error: ${msg}`, isLoading: false } : m));
@@ -312,16 +312,25 @@ export default function HomePage() {
   }, []);
 
   const handleLoadMore = useCallback(async (messageId: string) => {
+    // Use a ref-like pattern: capture intent/page from latest state inside setMessages
+    let capturedIntent: SearchIntent | undefined;
+    let capturedPage: number = 1;
+
     setMessages((prev) => {
       const msg = prev.find((m) => m.id === messageId);
       if (!msg?.intent || msg.isLoadingMore) return prev;
+      capturedIntent = msg.intent;
+      capturedPage = msg.page ?? 1;
       return prev.map((m) => m.id === messageId ? { ...m, isLoadingMore: true } : m);
     });
-    const msg = messages.find((m) => m.id === messageId);
-    if (!msg?.intent || msg.isLoadingMore) return;
-    const nextPage = (msg.page ?? 1) + 3; // +3 because we load 3 pages at a time
+
+    // Give React a tick to flush the state read above
+    await new Promise((r) => setTimeout(r, 0));
+
+    if (!capturedIntent) return;
+    const nextPage = capturedPage + 3;
     try {
-      const result = await executeSearch(msg.intent, nextPage);
+      const result = await executeSearch(capturedIntent, nextPage);
       setMessages((prev) => prev.map((m) => m.id === messageId ? {
         ...m,
         movies: [...(m.movies ?? []), ...result.movies],
@@ -332,7 +341,7 @@ export default function HomePage() {
     } catch {
       setMessages((prev) => prev.map((m) => m.id === messageId ? { ...m, isLoadingMore: false } : m));
     }
-  }, [messages]);
+  }, []);
 
   const handleSubmit = useCallback(async (userInput: string) => {
     if (isLoading) return;
@@ -371,7 +380,7 @@ export default function HomePage() {
       const seen = new Set<number>([movie.id]);
       const unique = combined.filter((m) => { if (seen.has(m.id)) return false; seen.add(m.id); return true; });
       const enriched = await enrichMovies(unique);
-      setMessages((prev) => prev.map((m) => m.id === assistantId ? { ...m, content: `🎬 Películas similares a "${movie.title}"`, movies: enriched, page: 1, hasMore: false, isLoading: false } : m));
+      setMessages((prev) => prev.map((m) => m.id === assistantId ? { ...m, content: `🎬 Películas similares a "${movie.title}"`, movies: enriched, intent: { type: "similar" as const, query: movie.title, message: `Similares a "${movie.title}"` }, page: 1, hasMore: true, isLoading: false } : m));
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       setMessages((prev) => prev.map((m) => m.id === assistantId ? { ...m, content: `Error: ${msg}`, isLoading: false } : m));

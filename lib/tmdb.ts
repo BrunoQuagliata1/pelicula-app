@@ -27,6 +27,25 @@ export interface TMDBMovie {
       link?: string;
     }>;
   };
+  // Enriched lazily on hover
+  trailerKey?: string | null;
+  backdrops?: string[];
+}
+
+export interface TMDBVideo {
+  id: string;
+  key: string;
+  site: string;
+  type: string;
+  official: boolean;
+  published_at: string;
+}
+
+export interface TMDBImage {
+  file_path: string;
+  width: number;
+  height: number;
+  vote_average: number;
 }
 
 export interface TMDBResponse<T> {
@@ -71,6 +90,14 @@ export async function getMovieDetails(id: number): Promise<TMDBMovie> {
   }) as Promise<TMDBMovie>;
 }
 
+export async function getMovieVideos(id: number): Promise<{ results: TMDBVideo[] }> {
+  return callProxy(`/movie/${id}/videos`, {}) as Promise<{ results: TMDBVideo[] }>;
+}
+
+export async function getMovieImages(id: number): Promise<{ backdrops: TMDBImage[] }> {
+  return callProxy(`/movie/${id}/images`, { include_image_language: "null,en" }) as Promise<{ backdrops: TMDBImage[] }>;
+}
+
 export async function getSimilarMovies(id: number, page = 1): Promise<TMDBResponse<TMDBMovie>> {
   return callProxy(`/movie/${id}/similar`, { page }) as Promise<TMDBResponse<TMDBMovie>>;
 }
@@ -108,6 +135,11 @@ export function formatRuntime(minutes: number | undefined): string {
 export function getYear(releaseDate: string | undefined): string {
   if (!releaseDate) return "";
   return releaseDate.slice(0, 4);
+}
+
+export function getBackdropUrl(path: string | null, size: "w780" | "w1280" | "original" = "w780"): string {
+  if (!path) return "";
+  return `${TMDB_IMAGE_BASE}/${size}${path}`;
 }
 
 export function getStreamingProviders(
