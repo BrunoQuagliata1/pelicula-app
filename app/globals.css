@@ -54,3 +54,19 @@ body {
 .animate-slide-up {
   animation: slideUp 0.4s ease forwards;
 }
+
+/* Hide scrollbar while keeping scroll functionality */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+/* iOS zoom fix — prevent auto-zoom on input focus */
+@media (max-width: 768px) {
+  input, textarea {
+    font-size: 16px !important;
+  }
+}

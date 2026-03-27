@@ -101,7 +101,7 @@ export default function SwipeMode({ movies, countryCode, onLike, onDislike, onCl
       >
         <div className="bg-gray-900 rounded-3xl overflow-hidden border border-gray-800 shadow-2xl">
           {/* Poster */}
-          <div className="relative w-full aspect-[2/3] bg-gray-800 max-h-[45vh]">
+          <div className="relative w-full aspect-[2/3] bg-gray-800 max-h-[50vh]">
             {poster ? (
               <Image src={poster} alt={current.title} fill sizes="400px" className="object-cover" />
             ) : (

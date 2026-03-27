@@ -92,7 +92,7 @@ export default function ChatInput({ onSubmit, onMood, onSurprise, onSwipe, isLoa
               placeholder={placeholder ?? "Ej: algo de acción, como Inception, con Cate Blanchett..."}
               disabled={isLoading}
               rows={1}
-              className="w-full bg-gray-900 border border-gray-700 rounded-2xl px-4 py-3 text-sm text-gray-100 placeholder-gray-500 resize-none outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500/50 transition-colors disabled:opacity-60 leading-relaxed"
+              className="w-full bg-gray-900 border border-gray-700 rounded-2xl px-4 py-3 text-base text-gray-100 placeholder-gray-500 resize-none outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500/50 transition-colors disabled:opacity-60 leading-relaxed"
             />
           </div>
           <button
@@ -114,7 +114,7 @@ export default function ChatInput({ onSubmit, onMood, onSurprise, onSwipe, isLoa
         </form>
       ) : (
         /* Mood grid */
-        <div className="px-4 py-3 grid grid-cols-4 gap-2">
+        <div className="px-4 py-3 grid grid-cols-3 sm:grid-cols-4 gap-2">
           {MOODS.map((mood) => (
             <button
               key={mood.label}

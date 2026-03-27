@@ -27,6 +27,12 @@ interface MovieCardProps {
 // Cache fetched trailer/images per movie id to avoid redundant API calls
 const mediaCache = new Map<number, { trailerKey: string | null; backdrops: string[] }>();
 
+// Detect touch device
+function isTouchDevice() {
+  if (typeof window === "undefined") return false;
+  return window.matchMedia("(hover: none) and (pointer: coarse)").matches;
+}
+
 export default function MovieCard({ movie, countryCode, onSimilar, onWatchlist, inWatchlist }: MovieCardProps) {
   const [posterError, setPosterError] = useState(false);
 
@@ -38,6 +44,8 @@ export default function MovieCard({ movie, countryCode, onSimilar, onWatchlist, 
   const [showTrailer, setShowTrailer] = useState(false);
   const [galleryIndex, setGalleryIndex] = useState(0);
   const [showGallery, setShowGallery] = useState(false);
+  // Mobile tap: show overview overlay
+  const [showMobileOverview, setShowMobileOverview] = useState(false);
   const hoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isFetching = useRef(false);
 
@@ -102,6 +110,7 @@ export default function MovieCard({ movie, countryCode, onSimilar, onWatchlist, 
   }, [movie.id, movie.backdrop_path, mediaLoaded]);
 
   const handleMouseEnter = useCallback(() => {
+    if (isTouchDevice()) return;
     setIsHovered(true);
     // Start fetch immediately on hover, show trailer after 600ms so fast scrollers don't trigger it
     fetchMedia();
@@ -109,9 +118,16 @@ export default function MovieCard({ movie, countryCode, onSimilar, onWatchlist, 
   }, [fetchMedia]);
 
   const handleMouseLeave = useCallback(() => {
+    if (isTouchDevice()) return;
     setIsHovered(false);
     setShowTrailer(false);
     if (hoverTimer.current) clearTimeout(hoverTimer.current);
+  }, []);
+
+  // Mobile tap on poster area — toggle overview
+  const handlePosterTap = useCallback(() => {
+    if (!isTouchDevice()) return;
+    setShowMobileOverview((v) => !v);
   }, []);
 
   useEffect(() => {
@@ -131,12 +147,15 @@ export default function MovieCard({ movie, countryCode, onSimilar, onWatchlist, 
 
   return (
     <div
-      className="movie-card flex flex-col bg-gray-900 rounded-2xl overflow-hidden border border-gray-800 hover:border-gray-600 w-[220px] flex-shrink-0 relative transition-all duration-200 hover:shadow-xl hover:shadow-black/40 hover:-translate-y-0.5"
+      className="movie-card flex flex-col bg-gray-900 rounded-2xl overflow-hidden border border-gray-800 hover:border-gray-600 w-[85vw] max-w-[220px] flex-shrink-0 relative transition-all duration-200 hover:shadow-xl hover:shadow-black/40 hover:-translate-y-0.5"
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
     >
       {/* ── Poster / Trailer / Gallery area ─────────────────────────── */}
-      <div className="relative w-full aspect-[2/3] bg-gray-800 overflow-hidden">
+      <div
+        className="relative w-full aspect-[2/3] bg-gray-800 overflow-hidden"
+        onClick={handlePosterTap}
+      >
 
         {/* Poster (base layer) */}
         {posterUrl ? (
@@ -144,7 +163,7 @@ export default function MovieCard({ movie, countryCode, onSimilar, onWatchlist, 
             src={posterUrl}
             alt={movie.title}
             fill
-            sizes="220px"
+            sizes="(max-width: 640px) 85vw, 220px"
             className={`object-cover transition-opacity duration-300 ${showTrailer ? "opacity-0" : "opacity-100"}`}
             onError={() => setPosterError(true)}
           />
@@ -157,7 +176,7 @@ export default function MovieCard({ movie, countryCode, onSimilar, onWatchlist, 
           </div>
         )}
 
-        {/* Trailer iframe — only mounts after hover delay + trailer key exists */}
+        {/* Trailer iframe — only mounts after hover delay + trailer key exists (desktop only) */}
         {showTrailer && trailerKey && (
           <div className="absolute inset-0 z-10">
             <iframe
@@ -171,8 +190,10 @@ export default function MovieCard({ movie, countryCode, onSimilar, onWatchlist, 
           </div>
         )}
 
-        {/* Overview overlay — shows on hover when no trailer or before trailer loads */}
-        {isHovered && !showTrailer && movie.overview && (
+        {/* Overview overlay:
+            - Desktop: shows on hover when no trailer or before trailer loads
+            - Mobile: shows on tap */}
+        {((isHovered && !showTrailer) || showMobileOverview) && movie.overview && (
           <div className="absolute inset-0 bg-gray-950/90 p-3 z-10 overflow-y-auto flex items-start transition-opacity duration-150">
             <p className="text-xs text-gray-200 leading-relaxed">{movie.overview}</p>
           </div>
@@ -193,11 +214,21 @@ export default function MovieCard({ movie, countryCode, onSimilar, onWatchlist, 
           </svg>
         </button>
 
-        {/* Trailer indicator badge */}
+        {/* Trailer indicator badge (desktop hover only) */}
         {trailerKey && !showTrailer && isHovered && (
           <div className="absolute bottom-2 left-2 z-20 flex items-center gap-1 bg-black/70 text-white text-xs px-2 py-1 rounded-full">
             <svg className="w-3 h-3 text-red-400" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
             Trailer
+          </div>
+        )}
+
+        {/* Mobile tap hint — visible on touch devices when overview is hidden */}
+        {!showMobileOverview && movie.overview && (
+          <div className="absolute bottom-2 left-2 z-20 sm:hidden flex items-center gap-1 bg-black/60 text-white text-[10px] px-2 py-1 rounded-full pointer-events-none">
+            <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            Ver info
           </div>
         )}
       </div>
@@ -309,7 +340,7 @@ export default function MovieCard({ movie, countryCode, onSimilar, onWatchlist, 
 
         <button
           onClick={() => onSimilar(movie)}
-          className="mt-2 w-full py-2 px-3 rounded-xl bg-indigo-900/40 hover:bg-indigo-800/60 border border-indigo-800/50 hover:border-indigo-700 text-indigo-300 hover:text-indigo-200 text-xs font-medium transition-all flex items-center justify-center gap-1.5"
+          className="mt-2 w-full min-h-[44px] py-2 px-3 rounded-xl bg-indigo-900/40 hover:bg-indigo-800/60 border border-indigo-800/50 hover:border-indigo-700 text-indigo-300 hover:text-indigo-200 text-xs font-medium transition-all flex items-center justify-center gap-1.5"
         >
           Como esta
           <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">

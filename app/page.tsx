@@ -509,14 +509,14 @@ export default function HomePage() {
         />
       )}
 
-      {/* Watchlist panel (slide-over) */}
+      {/* Watchlist panel — fullscreen on mobile, slide-over on desktop */}
       {showWatchlist && (
         <div className="fixed inset-0 z-50 flex">
-          {/* Backdrop */}
-          <div className="flex-1 bg-black/60 backdrop-blur-sm" onClick={() => setShowWatchlist(false)} />
+          {/* Backdrop — desktop only (hidden on mobile since panel is fullscreen) */}
+          <div className="hidden sm:block flex-1 bg-black/60 backdrop-blur-sm" onClick={() => setShowWatchlist(false)} />
 
-          {/* Panel */}
-          <div className="w-full max-w-sm bg-gray-950 border-l border-gray-800 flex flex-col h-full overflow-hidden animate-slide-up">
+          {/* Panel — fullscreen on mobile (fixed inset-0), right slide-over on desktop */}
+          <div className="fixed inset-0 sm:static sm:w-full sm:max-w-sm bg-gray-950 sm:border-l border-gray-800 flex flex-col h-full overflow-hidden animate-slide-up">
             {/* Panel header */}
             <div className="flex items-center justify-between px-4 py-4 border-b border-gray-800">
               <div className="flex items-center gap-2">
