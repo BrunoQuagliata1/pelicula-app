@@ -1,61 +1,56 @@
 @import "tailwindcss";
 
 :root {
-  --background: #030712;
-  --foreground: #f9fafb;
+  --bg: #0A0A0A;
+  --surface: #141414;
+  --elevated: #1C1C1C;
+  --accent: #E50914;
+  --gold: #F5C518;
+  --text-primary: #FFFFFF;
+  --text-secondary: #A3A3A3;
+  --text-tertiary: #525252;
+  --border: #262626;
+
+  /* Legacy aliases */
+  --background: #0A0A0A;
+  --foreground: #FFFFFF;
+}
+
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+  background: var(--bg);
+  color: var(--text-primary);
+  font-family: var(--font-inter, system-ui, -apple-system, 'Segoe UI', sans-serif);
   height: 100dvh;
   overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
-/* Custom scrollbar */
+/* ── Scrollbar — thin on desktop ─────────────────────────── */
 ::-webkit-scrollbar {
-  width: 6px;
+  width: 4px;
+  height: 4px;
 }
 ::-webkit-scrollbar-track {
-  background: #111827;
+  background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: #374151;
-  border-radius: 3px;
+  background: var(--border);
+  border-radius: 2px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #4b5563;
+  background: var(--text-tertiary);
 }
 
-/* Card hover animation */
-.movie-card {
-  transition: transform 0.2s ease, box-shadow 0.2s ease;
-}
-.movie-card:hover {
-  transform: translateY(-4px);
-  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.6);
-}
-
-/* Streaming badge pulse */
-@keyframes fadeIn {
-  from { opacity: 0; transform: translateY(8px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-.animate-fade-in {
-  animation: fadeIn 0.3s ease forwards;
-}
-
-/* Message appear */
-@keyframes slideUp {
-  from { opacity: 0; transform: translateY(16px); }
-  to { opacity: 1; transform: translateY(0); }
-}
-.animate-slide-up {
-  animation: slideUp 0.4s ease forwards;
-}
-
-/* Hide scrollbar while keeping scroll functionality */
+/* ── No-scrollbar utility ────────────────────────────────── */
 .no-scrollbar::-webkit-scrollbar {
   display: none;
 }
@@ -64,9 +59,114 @@ body {
   scrollbar-width: none;
 }
 
-/* iOS zoom fix — prevent auto-zoom on input focus */
+/* ── Animations ──────────────────────────────────────────── */
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.animate-fade-in {
+  animation: fadeIn 0.3s ease forwards;
+}
+
+@keyframes slideUp {
+  from { opacity: 0; transform: translateY(20px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.animate-slide-up {
+  animation: slideUp 0.35s ease forwards;
+}
+
+@keyframes shimmer {
+  0%   { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+.skeleton {
+  background: linear-gradient(
+    90deg,
+    var(--surface) 25%,
+    var(--elevated) 50%,
+    var(--surface) 75%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.4s ease infinite;
+}
+
+/* ── Bottom sheet ─────────────────────────────────────────── */
+.sheet-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.70);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  z-index: 40;
+}
+
+.sheet-panel {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: var(--elevated);
+  border-radius: 20px 20px 0 0;
+  z-index: 41;
+  overscroll-behavior: contain;
+  transition: transform 0.3s cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+.sheet-panel.sheet-open {
+  transform: translateY(0);
+}
+
+.sheet-panel.sheet-closed {
+  transform: translateY(100%);
+}
+
+/* Desktop: sheet becomes centered modal */
+@media (min-width: 768px) {
+  .sheet-panel {
+    top: 50%;
+    left: 50%;
+    right: auto;
+    bottom: auto;
+    transform: translate(-50%, -50%) scale(0.96);
+    border-radius: 16px;
+    width: 100%;
+    max-width: 640px;
+    max-height: 85vh;
+    opacity: 0;
+    transition: transform 0.25s ease, opacity 0.25s ease;
+  }
+  .sheet-panel.sheet-open {
+    transform: translate(-50%, -50%) scale(1);
+    opacity: 1;
+  }
+  .sheet-panel.sheet-closed {
+    transform: translate(-50%, -50%) scale(0.96);
+    opacity: 0;
+    pointer-events: none;
+  }
+}
+
+/* ── Touch targets ───────────────────────────────────────── */
+button, a, [role="button"] {
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* ── iOS zoom fix ────────────────────────────────────────── */
 @media (max-width: 768px) {
   input, textarea {
     font-size: 16px !important;
   }
+}
+
+/* ── Playfair Display font variable ─────────────────────── */
+.font-display {
+  font-family: var(--font-playfair, Georgia, serif);
+}
+
+/* ── Gradient masks ──────────────────────────────────────── */
+.mask-bottom {
+  -webkit-mask-image: linear-gradient(to bottom, black 60%, transparent 100%);
+  mask-image: linear-gradient(to bottom, black 60%, transparent 100%);
 }
