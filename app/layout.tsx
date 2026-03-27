@@ -1,40 +1,27 @@
 import type { Metadata, Viewport } from "next";
-import { Inter, Playfair_Display } from "next/font/google";
 import "./globals.css";
 
-const inter = Inter({
-  subsets: ["latin"],
-  variable: "--font-inter",
-  display: "swap",
-});
-
-const playfair = Playfair_Display({
-  subsets: ["latin"],
-  variable: "--font-playfair",
-  style: ["normal", "italic"],
-  display: "swap",
-});
-
 export const metadata: Metadata = {
-  title: "Cineclub 🎬 — Tu próxima película favorita",
-  description: "Descubrí tu próxima película favorita con recomendaciones personalizadas al estilo Netflix.",
+  title: "Cineclub — Tu próxima película favorita",
+  description: "Descubrí tu próxima película favorita. Recomendaciones personalizadas según tu humor.",
 };
 
 export const viewport: Viewport = {
-  themeColor: "#0A0A0A",
   width: "device-width",
   initialScale: 1,
-  viewportFit: "cover",
+  maximumScale: 1,
+  userScalable: false,
+  themeColor: "#080808",
 };
 
-export default function RootLayout({
-  children,
-}: Readonly<{
-  children: React.ReactNode;
-}>) {
+export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="es" className={`${inter.variable} ${playfair.variable}`}>
-      <body className="bg-[#0A0A0A] text-white h-dvh overflow-hidden antialiased">
+    <html lang="es">
+      <head>
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
+      </head>
+      <body>
         {children}
       </body>
     </html>

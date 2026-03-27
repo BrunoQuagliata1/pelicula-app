@@ -5,44 +5,35 @@ import { SearchIntent } from "@/lib/movieSearch";
 
 interface MoodBarProps {
   activeMood: string;
-  onMood: (intent: SearchIntent, label: string, key: string) => void;
-  isLoading?: boolean;
+  onSelect: (key: string, intent: SearchIntent, label: string) => void;
 }
 
-const POPULAR_MOOD = {
-  emoji: "🔥",
-  label: "Populares",
-  key: "popular",
-  intent: { type: "popular" as const, message: "Películas populares del momento" },
-};
+const ALL_MOODS = [
+  { key: "popular", emoji: "🔥", label: "Populares", intent: { type: "popular" as const, message: "Populares ahora" } },
+  { key: "top", emoji: "⭐", label: "Top IMDb", intent: { type: "top_rated" as const, message: "Las mejor valoradas" } },
+  ...MOODS.map((m, i) => ({ key: `mood-${i}`, emoji: m.emoji, label: m.label, intent: m.intent })),
+];
 
-export default function MoodBar({ activeMood, onMood, isLoading }: MoodBarProps) {
-  const allMoods = [
-    POPULAR_MOOD,
-    ...MOODS.map((m) => ({ ...m, key: m.label })),
-  ];
-
+export default function MoodBar({ activeMood, onSelect }: MoodBarProps) {
   return (
-    <div className="flex gap-2 overflow-x-auto px-4 py-3 no-scrollbar flex-shrink-0 border-b border-[#262626]">
-      {allMoods.map((mood) => {
+    <div className="flex gap-2 px-4 py-3 overflow-x-auto no-scrollbar flex-shrink-0">
+      {ALL_MOODS.map((mood) => {
         const isActive = activeMood === mood.key;
         return (
           <button
             key={mood.key}
-            onClick={() => !isLoading && onMood(mood.intent, mood.label, mood.key)}
-            disabled={isLoading}
-            className={`
-              flex-shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium
-              transition-all duration-200 border whitespace-nowrap
-              ${isActive
-                ? "bg-[#E50914] border-[#E50914] text-white"
-                : "bg-[#141414] border-[#262626] text-[#A3A3A3] hover:border-[#525252] hover:text-white active:scale-95"
-              }
-              disabled:opacity-50
-            `}
+            onClick={() => onSelect(mood.key, mood.intent, mood.label)}
+            className="flex-shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition-all"
+            style={{
+              background: isActive ? "var(--accent)" : "var(--surface)",
+              color: isActive ? "var(--accent-text)" : "var(--text-2)",
+              border: isActive ? "none" : "1px solid var(--border)",
+              fontFamily: "'DM Sans', sans-serif",
+              fontWeight: 500,
+            }}
           >
-            <span className="text-base leading-none">{mood.emoji}</span>
-            <span>{mood.label}</span>
+            <span>{mood.emoji}</span>
+            <span className="whitespace-nowrap">{mood.label}</span>
           </button>
         );
       })}

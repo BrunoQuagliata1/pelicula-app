@@ -1,172 +1,153 @@
 @import "tailwindcss";
 
+/* ── Fuentes ─────────────────────────────────────────────── */
+@import url('https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700;800&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;1,9..40,300&display=swap');
+
 :root {
-  --bg: #0A0A0A;
-  --surface: #141414;
-  --elevated: #1C1C1C;
-  --accent: #E50914;
-  --gold: #F5C518;
-  --text-primary: #FFFFFF;
-  --text-secondary: #A3A3A3;
-  --text-tertiary: #525252;
-  --border: #262626;
+  /* Paleta */
+  --bg:           #080808;
+  --surface:      #111111;
+  --elevated:     #181818;
+  --overlay:      #202020;
+  --accent:       #C8FF00;       /* lima eléctrico — único, no el rojo genérico */
+  --accent-dim:   rgba(200,255,0,0.12);
+  --accent-text:  #080808;
+  --gold:         #F5C518;
+  --text-1:       #F2F2F2;
+  --text-2:       #888888;
+  --text-3:       #444444;
+  --border:       rgba(255,255,255,0.07);
+  --border-hover: rgba(255,255,255,0.14);
 
-  /* Legacy aliases */
-  --background: #0A0A0A;
-  --foreground: #FFFFFF;
+  /* Radio */
+  --r-sm: 10px;
+  --r-md: 16px;
+  --r-lg: 24px;
+  --r-xl: 32px;
 }
 
-*, *::before, *::after {
-  box-sizing: border-box;
-}
+*, *::before, *::after { box-sizing: border-box; }
 
-html {
-  -webkit-text-size-adjust: 100%;
-}
+html { -webkit-text-size-adjust: 100%; }
 
 body {
   background: var(--bg);
-  color: var(--text-primary);
-  font-family: var(--font-inter, system-ui, -apple-system, 'Segoe UI', sans-serif);
+  color: var(--text-1);
+  font-family: 'DM Sans', system-ui, sans-serif;
   height: 100dvh;
   overflow: hidden;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
 
-/* ── Scrollbar — thin on desktop ─────────────────────────── */
-::-webkit-scrollbar {
-  width: 4px;
-  height: 4px;
-}
-::-webkit-scrollbar-track {
-  background: transparent;
-}
-::-webkit-scrollbar-thumb {
-  background: var(--border);
-  border-radius: 2px;
-}
-::-webkit-scrollbar-thumb:hover {
-  background: var(--text-tertiary);
+/* ── Scrollbar ───────────────────────────────────────────── */
+::-webkit-scrollbar { width: 3px; height: 3px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+.no-scrollbar::-webkit-scrollbar { display: none; }
+.no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+
+/* ── Tipografía ──────────────────────────────────────────── */
+.font-display {
+  font-family: 'Syne', system-ui, sans-serif;
+  font-weight: 700;
+  letter-spacing: -0.02em;
 }
 
-/* ── No-scrollbar utility ────────────────────────────────── */
-.no-scrollbar::-webkit-scrollbar {
-  display: none;
-}
-.no-scrollbar {
-  -ms-overflow-style: none;
-  scrollbar-width: none;
+/* ── Touch ───────────────────────────────────────────────── */
+button, a, [role="button"] {
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  cursor: pointer;
 }
 
-/* ── Animations ──────────────────────────────────────────── */
-@keyframes fadeIn {
-  from { opacity: 0; transform: translateY(8px); }
+@media (max-width: 768px) {
+  input, textarea { font-size: 16px !important; }
+}
+
+/* ── Animaciones ─────────────────────────────────────────── */
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(12px); }
   to   { opacity: 1; transform: translateY(0); }
 }
-.animate-fade-in {
-  animation: fadeIn 0.3s ease forwards;
-}
-
-@keyframes slideUp {
-  from { opacity: 0; transform: translateY(20px); }
-  to   { opacity: 1; transform: translateY(0); }
-}
-.animate-slide-up {
-  animation: slideUp 0.35s ease forwards;
-}
+.fade-up { animation: fadeUp 0.3s ease forwards; }
 
 @keyframes shimmer {
   0%   { background-position: -200% 0; }
-  100% { background-position: 200% 0; }
+  100% { background-position:  200% 0; }
 }
 .skeleton {
-  background: linear-gradient(
-    90deg,
-    var(--surface) 25%,
-    var(--elevated) 50%,
-    var(--surface) 75%
-  );
+  background: linear-gradient(90deg, var(--surface) 25%, var(--elevated) 50%, var(--surface) 75%);
   background-size: 200% 100%;
-  animation: shimmer 1.4s ease infinite;
+  animation: shimmer 1.6s ease infinite;
 }
 
 /* ── Bottom sheet ─────────────────────────────────────────── */
-.sheet-backdrop {
+.sheet-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.70);
-  backdrop-filter: blur(4px);
-  -webkit-backdrop-filter: blur(4px);
-  z-index: 40;
+  background: rgba(0,0,0,0.75);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  z-index: 50;
+  animation: fadeUp 0.2s ease forwards;
 }
 
 .sheet-panel {
   position: fixed;
-  bottom: 0;
-  left: 0;
-  right: 0;
+  bottom: 0; left: 0; right: 0;
   background: var(--elevated);
-  border-radius: 20px 20px 0 0;
-  z-index: 41;
+  border-radius: var(--r-xl) var(--r-xl) 0 0;
+  z-index: 51;
   overscroll-behavior: contain;
-  transition: transform 0.3s cubic-bezier(0.32, 0.72, 0, 1);
-}
-
-.sheet-panel.sheet-open {
+  overflow-y: auto;
+  max-height: 88dvh;
   transform: translateY(0);
+  animation: sheetUp 0.32s cubic-bezier(0.32,0.72,0,1) forwards;
 }
 
-.sheet-panel.sheet-closed {
-  transform: translateY(100%);
+@keyframes sheetUp {
+  from { transform: translateY(100%); }
+  to   { transform: translateY(0); }
 }
 
-/* Desktop: sheet becomes centered modal */
+/* Desktop: modal centrado */
 @media (min-width: 768px) {
   .sheet-panel {
-    top: 50%;
-    left: 50%;
-    right: auto;
-    bottom: auto;
-    transform: translate(-50%, -50%) scale(0.96);
-    border-radius: 16px;
-    width: 100%;
-    max-width: 640px;
+    top: 50%; left: 50%; right: auto; bottom: auto;
+    transform: translate(-50%, -50%);
+    border-radius: var(--r-lg);
+    width: 100%; max-width: 560px;
     max-height: 85vh;
-    opacity: 0;
-    transition: transform 0.25s ease, opacity 0.25s ease;
+    animation: modalIn 0.25s ease forwards;
   }
-  .sheet-panel.sheet-open {
-    transform: translate(-50%, -50%) scale(1);
-    opacity: 1;
-  }
-  .sheet-panel.sheet-closed {
-    transform: translate(-50%, -50%) scale(0.96);
-    opacity: 0;
-    pointer-events: none;
+  @keyframes modalIn {
+    from { opacity: 0; transform: translate(-50%, -48%) scale(0.97); }
+    to   { opacity: 1; transform: translate(-50%, -50%) scale(1); }
   }
 }
 
-/* ── Touch targets ───────────────────────────────────────── */
-button, a, [role="button"] {
-  touch-action: manipulation;
-  -webkit-tap-highlight-color: transparent;
-}
+/* ── Card hover ──────────────────────────────────────────── */
+.movie-card { transition: transform 0.2s ease; }
+.movie-card:active { transform: scale(0.97); }
 
-/* ── iOS zoom fix ────────────────────────────────────────── */
-@media (max-width: 768px) {
-  input, textarea {
-    font-size: 16px !important;
-  }
+/* ── Feed scroll snap ─────────────────────────────────────── */
+.feed-container {
+  overflow-y: scroll;
+  scroll-snap-type: y mandatory;
+  -webkit-overflow-scrolling: touch;
+  height: 100%;
+  scrollbar-width: none;
 }
+.feed-container::-webkit-scrollbar { display: none; }
 
-/* ── Playfair Display font variable ─────────────────────── */
-.font-display {
-  font-family: var(--font-playfair, Georgia, serif);
-}
-
-/* ── Gradient masks ──────────────────────────────────────── */
-.mask-bottom {
-  -webkit-mask-image: linear-gradient(to bottom, black 60%, transparent 100%);
-  mask-image: linear-gradient(to bottom, black 60%, transparent 100%);
+.feed-slide {
+  scroll-snap-align: start;
+  scroll-snap-stop: always;
+  height: 100dvh;
+  position: relative;
+  overflow: hidden;
+  will-change: transform;
+  touch-action: pan-y;
 }

@@ -2,12 +2,8 @@
 
 import { useState } from "react";
 import Image from "next/image";
-import {
-  TMDBMovie,
-  getPosterUrl,
-  getLogoUrl,
-  getStreamingProviders,
-} from "@/lib/tmdb";
+import { BookmarkSimple, Bookmark } from "@phosphor-icons/react";
+import { TMDBMovie, getPosterUrl, getLogoUrl, getStreamingProviders } from "@/lib/tmdb";
 
 interface MovieCardProps {
   movie: TMDBMovie;
@@ -22,95 +18,71 @@ export default function MovieCard({ movie, countryCode, onTap, onWatchlist, inWa
 
   const posterUrl = posterError ? null : getPosterUrl(movie.poster_path, "w342");
   const rating = movie.vote_average > 0 ? movie.vote_average.toFixed(1) : null;
-  const primaryGenre = movie.genres?.[0]?.name ?? null;
   const streaming = getStreamingProviders(movie, countryCode);
   const firstProvider = streaming[0] ?? null;
 
   return (
-    <div
-      className="flex flex-col cursor-pointer group animate-fade-in"
-      onClick={() => onTap(movie)}
-    >
+    <div className="movie-card flex flex-col gap-2 cursor-pointer" onClick={() => onTap(movie)}>
       {/* Poster */}
-      <div className="relative w-full aspect-[2/3] rounded-xl overflow-hidden bg-[#141414]">
+      <div className="relative w-full aspect-[2/3] rounded-[14px] overflow-hidden bg-[#111]">
         {posterUrl ? (
           <Image
             src={posterUrl}
             alt={movie.title}
             fill
-            sizes="(max-width: 640px) 48vw, (max-width: 768px) 33vw, (max-width: 1024px) 25vw, 20vw"
-            className="object-cover transition-transform duration-300 group-hover:scale-105"
+            sizes="(max-width: 640px) 47vw, (max-width: 1024px) 32vw, 20vw"
+            className="object-cover"
             onError={() => setPosterError(true)}
           />
         ) : (
-          <div className="absolute inset-0 flex flex-col items-center justify-center p-3 text-center bg-[#141414]">
-            <svg className="w-10 h-10 text-[#525252] mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M7 4v16M17 4v16M3 8h4m10 0h4M3 16h4m10 0h4M4 20h16a1 1 0 001-1V5a1 1 0 00-1-1H4a1 1 0 00-1 1v14a1 1 0 001 1z" />
-            </svg>
-            <span className="text-xs text-[#525252] leading-tight line-clamp-3">{movie.title}</span>
+          <div className="absolute inset-0 flex items-center justify-center bg-[#111]">
+            <span className="text-[#333] text-xs text-center px-3 leading-relaxed">{movie.title}</span>
           </div>
         )}
 
-        {/* Overlay gradient at bottom */}
-        <div className="absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t from-black/60 to-transparent pointer-events-none" />
+        {/* Gradient bottom */}
+        <div className="absolute inset-x-0 bottom-0 h-20 pointer-events-none"
+          style={{ background: "linear-gradient(to top, rgba(0,0,0,0.85) 0%, transparent 100%)" }} />
 
-        {/* Streaming provider badge — bottom left */}
+        {/* Rating — bottom left */}
+        {rating && (
+          <div className="absolute bottom-2 left-2 flex items-center gap-1">
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="#F5C518">
+              <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/>
+            </svg>
+            <span className="text-[11px] font-semibold text-white leading-none">{rating}</span>
+          </div>
+        )}
+
+        {/* Provider — bottom right */}
         {firstProvider && (
-          <div className="absolute bottom-2 left-2 z-10">
-            <div className="relative w-6 h-6 rounded-md overflow-hidden shadow-lg" title={firstProvider.provider_name}>
-              <Image
-                src={getLogoUrl(firstProvider.logo_path)}
-                alt={firstProvider.provider_name}
-                fill
-                sizes="24px"
-                className="object-cover"
-              />
+          <div className="absolute bottom-2 right-2">
+            <div className="relative w-5 h-5 rounded-[5px] overflow-hidden shadow-md" title={firstProvider.provider_name}>
+              <Image src={getLogoUrl(firstProvider.logo_path)} alt={firstProvider.provider_name} fill sizes="20px" className="object-cover" />
             </div>
           </div>
         )}
 
-        {/* Bookmark button — top right */}
+        {/* Bookmark */}
         <button
           onClick={(e) => { e.stopPropagation(); onWatchlist(movie); }}
-          className={`
-            absolute top-2 right-2 z-10 w-9 h-9 rounded-full flex items-center justify-center
-            transition-all duration-200 shadow-lg
-            ${inWatchlist
-              ? "bg-[#E50914] text-white scale-110"
-              : "bg-black/60 text-[#A3A3A3] hover:bg-black/80 hover:text-white"
-            }
-          `}
-          aria-label={inWatchlist ? "Quitar de Mi lista" : "Guardar en Mi lista"}
+          className="absolute top-2 right-2 w-8 h-8 rounded-full flex items-center justify-center transition-all"
+          style={{
+            background: inWatchlist ? "var(--accent)" : "rgba(0,0,0,0.5)",
+            color: inWatchlist ? "var(--accent-text)" : "white",
+          }}
         >
-          <svg className="w-4 h-4" fill={inWatchlist ? "currentColor" : "none"} stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M5 3h14a1 1 0 011 1v17l-7-3.5L5 21V4a1 1 0 011-1z" />
-          </svg>
+          {inWatchlist
+            ? <Bookmark size={15} weight="fill" />
+            : <BookmarkSimple size={15} weight="regular" />
+          }
         </button>
-
-        {/* Genre badge — top left, only if genre available */}
-        {primaryGenre && (
-          <div className="absolute top-2 left-2 z-10">
-            <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-black/60 text-[#A3A3A3] backdrop-blur-sm">
-              {primaryGenre}
-            </span>
-          </div>
-        )}
       </div>
 
-      {/* Info below poster */}
-      <div className="mt-2 px-0.5">
-        <h3 className="text-sm font-medium text-white leading-tight line-clamp-2 mb-1">
-          {movie.title}
-        </h3>
-        {rating && (
-          <div className="flex items-center gap-1">
-            <svg className="w-3 h-3 flex-shrink-0" viewBox="0 0 24 24" fill="#F5C518">
-              <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />
-            </svg>
-            <span className="text-xs font-semibold" style={{ color: "#F5C518" }}>{rating}</span>
-          </div>
-        )}
-      </div>
+      {/* Title */}
+      <p className="text-[13px] font-medium leading-snug line-clamp-2 px-0.5" style={{ color: "var(--text-1)" }}>
+        {movie.title}
+      </p>
     </div>
   );
 }
