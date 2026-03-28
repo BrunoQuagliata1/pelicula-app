@@ -2,6 +2,17 @@ import { NextRequest, NextResponse } from "next/server";
 
 const TMDB_BASE = "https://api.themoviedb.org/3";
 
+export async function OPTIONS() {
+  return new NextResponse(null, {
+    status: 204,
+    headers: {
+      "Access-Control-Allow-Origin": "*",
+      "Access-Control-Allow-Methods": "POST, OPTIONS",
+      "Access-Control-Allow-Headers": "Content-Type",
+    },
+  });
+}
+
 export async function POST(request: NextRequest) {
   const apiKey = process.env.TMDB_API_KEY;
 
@@ -51,7 +62,9 @@ export async function POST(request: NextRequest) {
     }
 
     const data = await response.json();
-    return NextResponse.json(data);
+    return NextResponse.json(data, {
+      headers: { "Access-Control-Allow-Origin": "*" },
+    });
   } catch (error) {
     return NextResponse.json(
       { error: `Network error: ${error instanceof Error ? error.message : String(error)}` },

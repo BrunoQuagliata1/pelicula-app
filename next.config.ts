@@ -1,6 +1,7 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  allowedDevOrigins: ["validity-sugar-musical-places.trycloudflare.com"],
   images: {
     remotePatterns: [
       {
